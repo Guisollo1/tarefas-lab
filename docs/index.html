@@ -110,7 +110,7 @@
           <button id="exportBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇩ Exportar backup JSON</button>
           <button id="importBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇧ Importar backup JSON</button>
           <input id="importFile" class="file-input" type="file" accept="application/json,.json" />
-          <button id="weeklyTxtBtn" class="sidebar-btn strong" type="button" style="margin-top:8px" title="Gera o texto para a apresentação de segunda-feira sobre a semana anterior">▤ Relatório TXT para segunda-feira</button>
+          <button id="weeklyTxtBtn" class="sidebar-btn strong" type="button" style="margin-top:8px" title="Gera o relatório com ocorrências de segunda 08:00 até a segunda seguinte antes das 08:00">▤ Relatório TXT para segunda-feira</button>
           <button id="clearFiltersBtn" class="sidebar-btn" type="button" style="margin-top:8px">Limpar filtros</button>
         </section>
 
@@ -179,6 +179,7 @@
       <form id="eventForm">
         <div class="modal-body"><div class="form-grid">
           <div class="field"><label for="eventDate">Data *</label><input id="eventDate" class="input" type="date" required /></div>
+          <div class="field"><label for="eventTime">Horário *</label><input id="eventTime" class="input" type="time" required /></div>
           <div class="field"><label for="eventType">Tipo *</label><select id="eventType" class="select" required>
             <option value="visita">Visita</option><option value="visita_tecnica">Visita técnica</option><option value="apresentacao">Apresentação</option><option value="manutencao">Manutenção</option><option value="queda_luz">Queda de luz</option><option value="treinamento">Treinamento</option><option value="reuniao">Reunião</option><option value="auditoria">Auditoria</option><option value="seguranca">Segurança</option><option value="outro">Outro</option>
           </select></div>

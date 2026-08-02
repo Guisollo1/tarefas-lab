@@ -2,7 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const CONFIG = window.KANBAN_CONFIG || {};
 const THEME_KEY = 'lfr_planejamento_online_theme';
-const CACHE_KEY = 'lfr_planejamento_online_cache_v5';
+const CACHE_KEY = 'lfr_planejamento_online_cache_v6';
 const statusOrder = ['planejado', 'afazer', 'andamento', 'concluido'];
 const statusLabels = { planejado:'Planejado', afazer:'A fazer', andamento:'Em andamento', concluido:'Concluído' };
 const priorityColors = { alta:'#d94b45', media:'#e09f1f', baixa:'#2f8e67' };
@@ -44,13 +44,16 @@ function addDays(date,days){ const result=new Date(date); result.setDate(result.
 function startOfWeek(date){ const result=new Date(date); const day=result.getDay(); result.setDate(result.getDate()+(day===0?-6:1-day)); result.setHours(0,0,0,0); return result; }
 function endOfWeek(date){ return addDays(startOfWeek(date),6); }
 function formatShortDate(value){ return value ? parseISO(value).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) : 'Sem data'; }
+function normalizeTime(value){ const text=String(value||'12:00').trim(); const match=text.match(/^(\d{1,2}):(\d{2})/); if(!match)return '12:00'; return `${String(Math.min(23,Number(match[1]))).padStart(2,'0')}:${match[2]}`; }
+function eventDateTime(event){ if(!event?.eventDate)return null; const [y,m,d]=event.eventDate.split('-').map(Number); const [hh,mm]=normalizeTime(event.eventTime).split(':').map(Number); return new Date(y,m-1,d,hh,mm,0,0); }
+function formatEventDateTime(event){ const dt=eventDateTime(event); return dt ? dt.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Sem data e horário'; }
 function initials(name=''){ return name.trim().split(/\s+/).slice(0,2).map(p=>p[0]?.toUpperCase()||'').join(''); }
 function getPerson(id){ return state.people.find(p=>p.id===id) || {id:'none',name:'Responsável removido',color:'#778395'}; }
 function getTaskAssignees(task){ return Array.isArray(task.assignees) ? task.assignees : []; }
 function taskHasPerson(task,personId){ return getTaskAssignees(task).some(item=>item.personId===personId); }
 function assigneeNames(task){ return getTaskAssignees(task).map(item=>getPerson(item.personId).name); }
-function isEventInPeriod(event){ if(!event.eventDate) return false; const date=parseISO(event.eventDate); const {start,end}=periodRange(); return date>=start && date<=end; }
-function filteredEvents(){ return state.events.filter(isEventInPeriod).sort((a,b)=>(a.eventDate||'').localeCompare(b.eventDate||'') || (a.title||'').localeCompare(b.title||'', 'pt-BR')); }
+function isEventInPeriod(event){ const date=eventDateTime(event); if(!date)return false; const {start,end}=periodRange(); const inclusiveEnd=new Date(end); inclusiveEnd.setHours(23,59,59,999); return date>=start && date<=inclusiveEnd; }
+function filteredEvents(){ return state.events.filter(isEventInPeriod).sort((a,b)=>(eventDateTime(a)?.getTime()||0)-(eventDateTime(b)?.getTime()||0) || (a.title||'').localeCompare(b.title||'', 'pt-BR')); }
 function normalizeText(value){ return String(value||'').trim(); }
 function splitNames(value){ return normalizeText(value).split(/[;,|]/).map(v=>v.trim()).filter(Boolean); }
 function statusFromText(value){ const raw=normalizeText(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,''); if(['planejado','planejamento'].includes(raw))return 'planejado'; if(['afazer','fazer','pendente'].includes(raw))return 'afazer'; if(['andamento','emandamento','fazendo'].includes(raw))return 'andamento'; if(['concluido','concluida','feito','finalizado'].includes(raw))return 'concluido'; return statusOrder.includes(value)?value:'afazer'; }
@@ -193,7 +196,7 @@ async function loadData(showCover=false){
       supabase.from('people').select('id,name,color,active,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).eq('active',true).order('name'),
       supabase.from('tasks').select('id,title,description,due_date,priority,status,category,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('due_date'),
       supabase.from('task_assignees').select('task_id,person_id,done,done_at,done_by').eq('workspace_id',CONFIG.workspaceId),
-      supabase.from('lab_events').select('id,event_date,event_type,title,description,participants,impact,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('event_date',{ascending:true})
+      supabase.from('lab_events').select('id,event_date,event_time,event_type,title,description,participants,impact,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('event_date',{ascending:true})
     ]);
     for(const result of [peopleResult,tasksResult,assigneeResult,eventsResult]) if(result.error) throw result.error;
     const assignmentsByTask=new Map();
@@ -209,7 +212,7 @@ async function loadData(showCover=false){
         createdAt:t.created_at,updatedAt:t.updated_at,assignees:assignmentsByTask.get(t.id)||[]
       })),
       events:(eventsResult.data||[]).map(e=>({
-        id:e.id,eventDate:e.event_date,eventType:e.event_type,title:e.title,description:e.description||'',participants:e.participants||'',impact:e.impact||'',createdAt:e.created_at,updatedAt:e.updated_at
+        id:e.id,eventDate:e.event_date,eventTime:normalizeTime(e.event_time),eventType:e.event_type,title:e.title,description:e.description||'',participants:e.participants||'',impact:e.impact||'',createdAt:e.created_at,updatedAt:e.updated_at
       }))
     };
     localStorage.setItem(CACHE_KEY,JSON.stringify(state));
@@ -302,7 +305,7 @@ function renderEventsPanel(){
   if(!events.length){ panel.innerHTML='<div class="empty">Nenhuma ocorrência neste período.</div>'; return; }
   events.slice(0,8).forEach(event=>{
     const btn=document.createElement('button'); btn.type='button'; btn.className='event-item';
-    btn.innerHTML=`<div class="event-item-top"><span class="event-type">${esc(eventTypeLabels[event.eventType]||'Outro')}</span><span class="event-date">${formatShortDate(event.eventDate)}</span></div><div class="event-title">${esc(event.title)}</div>${event.description?`<div class="event-desc">${esc(event.description)}</div>`:''}`;
+    btn.innerHTML=`<div class="event-item-top"><span class="event-type">${esc(eventTypeLabels[event.eventType]||'Outro')}</span><span class="event-date">${formatShortDate(event.eventDate)} ${normalizeTime(event.eventTime)}</span></div><div class="event-title">${esc(event.title)}</div>${event.description?`<div class="event-desc">${esc(event.description)}</div>`:''}`;
     btn.addEventListener('click',()=>openEventModal(event.id)); panel.appendChild(btn);
   });
   if(events.length>8){ const more=document.createElement('div'); more.className='sheet-template'; more.textContent=`+ ${events.length-8} ocorrência(s) no período. Exportar relatório para ver tudo.`; panel.appendChild(more); }
@@ -401,7 +404,7 @@ function resetFilters(){selectedPerson='all';selectedDay='all';$('searchInput').
 function closeSidebarOnMobile(){if(window.innerWidth<=850)$('sidebar').classList.remove('open');}
 
 function exportData(){
-  const backup={version:4,exportedAt:new Date().toISOString(),people:state.people.map(p=>({id:p.id,name:p.name,color:p.color})),tasks:state.tasks.map(t=>({id:t.id,title:t.title,description:t.description,assignees:t.assignees,dueDate:t.dueDate,priority:t.priority,status:t.status,category:t.category})),events:state.events.map(e=>({id:e.id,eventDate:e.eventDate,eventType:e.eventType,title:e.title,description:e.description,participants:e.participants,impact:e.impact}))};
+  const backup={version:4,exportedAt:new Date().toISOString(),people:state.people.map(p=>({id:p.id,name:p.name,color:p.color})),tasks:state.tasks.map(t=>({id:t.id,title:t.title,description:t.description,assignees:t.assignees,dueDate:t.dueDate,priority:t.priority,status:t.status,category:t.category})),events:state.events.map(e=>({id:e.id,eventDate:e.eventDate,eventTime:normalizeTime(e.eventTime),eventType:e.eventType,title:e.title,description:e.description,participants:e.participants,impact:e.impact}))};
   const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`LFR_Planejamento_Online_Backup_${localISO(new Date())}.json`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);showToast('Backup exportado.');
 }
 async function importBackup(file){
@@ -423,7 +426,7 @@ async function importBackup(file){
     }
     if(Array.isArray(backup.events)){
       for(const oldEvent of backup.events){
-        const {error:eventError}=await supabase.from('lab_events').insert({workspace_id:CONFIG.workspaceId,event_date:oldEvent.eventDate||localISO(new Date()),event_type:eventTypeFromText(oldEvent.eventType),title:String(oldEvent.title||'Ocorrência importada').trim(),description:oldEvent.description||null,participants:oldEvent.participants||null,impact:oldEvent.impact||null,created_by:session.user.id,updated_by:session.user.id});
+        const {error:eventError}=await supabase.from('lab_events').insert({workspace_id:CONFIG.workspaceId,event_date:oldEvent.eventDate||localISO(new Date()),event_time:normalizeTime(oldEvent.eventTime),event_type:eventTypeFromText(oldEvent.eventType),title:String(oldEvent.title||'Ocorrência importada').trim(),description:oldEvent.description||null,participants:oldEvent.participants||null,impact:oldEvent.impact||null,created_by:session.user.id,updated_by:session.user.id});
         if(eventError) throw eventError;
       }
     }
@@ -435,13 +438,13 @@ async function importBackup(file){
 function openEventModal(eventId=null){
   editingEventId=eventId; const event=state.events.find(e=>e.id===eventId);
   $('eventModalTitle').textContent=event?'Editar ocorrência':'Nova ocorrência';
-  $('eventDate').value=event?.eventDate||defaultTaskDate(); $('eventType').value=event?.eventType||'visita'; $('eventTitle').value=event?.title||''; $('eventDescription').value=event?.description||''; $('eventParticipants').value=event?.participants||''; $('eventImpact').value=event?.impact||'';
+  $('eventDate').value=event?.eventDate||defaultTaskDate(); $('eventTime').value=normalizeTime(event?.eventTime||new Date().toTimeString().slice(0,5)); $('eventType').value=event?.eventType||'visita'; $('eventTitle').value=event?.title||''; $('eventDescription').value=event?.description||''; $('eventParticipants').value=event?.participants||''; $('eventImpact').value=event?.impact||'';
   $('deleteEventBtn').classList.toggle('hidden',!event); $('eventModalBackdrop').classList.remove('hidden'); setTimeout(()=>$('eventTitle').focus(),30);
 }
 function closeEventModal(){ $('eventModalBackdrop').classList.add('hidden'); editingEventId=null; $('eventForm').reset(); }
 async function saveEvent(event){
-  event.preventDefault(); const payload={workspace_id:CONFIG.workspaceId,event_date:$('eventDate').value,event_type:$('eventType').value,title:$('eventTitle').value.trim(),description:$('eventDescription').value.trim()||null,participants:$('eventParticipants').value.trim()||null,impact:$('eventImpact').value.trim()||null,updated_by:session.user.id};
-  if(!payload.event_date || !payload.title){showToast('Preencha data e título da ocorrência.');return;}
+  event.preventDefault(); const payload={workspace_id:CONFIG.workspaceId,event_date:$('eventDate').value,event_time:normalizeTime($('eventTime').value),event_type:$('eventType').value,title:$('eventTitle').value.trim(),description:$('eventDescription').value.trim()||null,participants:$('eventParticipants').value.trim()||null,impact:$('eventImpact').value.trim()||null,updated_by:session.user.id};
+  if(!payload.event_date || !payload.event_time || !payload.title){showToast('Preencha data, horário e título da ocorrência.');return;}
   setLoading(true,editingEventId?'Atualizando ocorrência...':'Criando ocorrência...');
   try{ if(editingEventId){const {error}=await supabase.from('lab_events').update(payload).eq('workspace_id',CONFIG.workspaceId).eq('id',editingEventId); if(error) throw error;} else {const {error}=await supabase.from('lab_events').insert({...payload,created_by:session.user.id}); if(error) throw error;} closeEventModal(); await loadData(false); showToast('Ocorrência salva.'); }catch(error){console.error(error);showToast(friendlyError(error));}finally{setLoading(false);}
 }
@@ -456,7 +459,7 @@ function taskRowsForSheet(tasks=state.tasks){
   }));
 }
 function eventRowsForSheet(events=state.events){
-  return events.map(e=>({'ID':e.id,'Data':e.eventDate,'Tipo':eventTypeLabels[e.eventType]||e.eventType,'Título':e.title,'Descrição':e.description,'Participantes / visitantes':e.participants,'Impacto / providência':e.impact}));
+  return events.map(e=>({'ID':e.id,'Data':e.eventDate,'Horário':normalizeTime(e.eventTime),'Tipo':eventTypeLabels[e.eventType]||e.eventType,'Título':e.title,'Descrição':e.description,'Participantes / visitantes':e.participants,'Impacto / providência':e.impact}));
 }
 function peopleRowsForSheet(){ return state.people.map(p=>({'ID':p.id,'Nome':p.name,'Cor':p.color})); }
 function getWeeklyData(){ const start=startOfWeek(cursorDate); const end=endOfWeek(cursorDate); const tasks=state.tasks.filter(t=>{const d=parseISO(t.dueDate);return d>=start&&d<=end;}); const events=state.events.filter(e=>{const d=parseISO(e.eventDate);return d>=start&&d<=end;}); return {start,end,tasks,events}; }
@@ -504,29 +507,37 @@ async function importSpreadsheet(file){
     }
     if(eventsSheet){
       const rows=window.XLSX.utils.sheet_to_json(eventsSheet,{defval:'',raw:false});
-      for(const row of rows){ const title=normalizeText(row['Título']||row['Titulo']||row['Ocorrência']||row['Ocorrencia']); if(!title) continue; const {error}=await supabase.from('lab_events').insert({workspace_id:CONFIG.workspaceId,event_date:excelDateToISO(row['Data']),event_type:eventTypeFromText(row['Tipo']),title,description:normalizeText(row['Descrição']||row['Descricao'])||null,participants:normalizeText(row['Participantes / visitantes']||row['Participantes']||row['Visitantes'])||null,impact:normalizeText(row['Impacto / providência']||row['Impacto']||row['Providência']||row['Providencia'])||null,created_by:session.user.id,updated_by:session.user.id}); if(error) throw error; }
+      for(const row of rows){ const title=normalizeText(row['Título']||row['Titulo']||row['Ocorrência']||row['Ocorrencia']); if(!title) continue; const {error}=await supabase.from('lab_events').insert({workspace_id:CONFIG.workspaceId,event_date:excelDateToISO(row['Data']),event_time:normalizeTime(row['Horário']||row['Horario']||row['Hora']),event_type:eventTypeFromText(row['Tipo']),title,description:normalizeText(row['Descrição']||row['Descricao'])||null,participants:normalizeText(row['Participantes / visitantes']||row['Participantes']||row['Visitantes'])||null,impact:normalizeText(row['Impacto / providência']||row['Impacto']||row['Providência']||row['Providencia'])||null,created_by:session.user.id,updated_by:session.user.id}); if(error) throw error; }
     }
     await loadData(false); showToast('Planilha importada com sucesso.');
   }catch(error){console.error(error);showToast(friendlyError(error));}finally{$('importSheetFile').value='';setLoading(false);}
 }
 function reportPresentationRange(referenceDate=new Date()){
-  const reference=new Date(referenceDate); reference.setHours(0,0,0,0);
-  const currentWeekStart=startOfWeek(reference);
-  const isMonday=reference.getDay()===1;
-  const presentationDate=isMonday ? reference : addDays(currentWeekStart,7);
-  const start=isMonday ? addDays(currentWeekStart,-7) : currentWeekStart;
-  const end=addDays(start,6);
-  return {start,end,presentationDate};
+  const now=new Date(referenceDate);
+  const monday=startOfWeek(now);
+  const thisMondayCutoff=new Date(monday); thisMondayCutoff.setHours(8,0,0,0);
+  let presentationCutoff;
+  if(now.getDay()===1 && now>=thisMondayCutoff){
+    presentationCutoff=thisMondayCutoff;
+  }else if(now<thisMondayCutoff){
+    presentationCutoff=thisMondayCutoff;
+  }else{
+    presentationCutoff=addDays(thisMondayCutoff,7);
+  }
+  const occurrenceStart=addDays(presentationCutoff,-7);
+  const occurrenceEnd=presentationCutoff; // limite exclusivo: 08:00 pertence ao período seguinte
+  const taskStart=new Date(occurrenceStart); taskStart.setHours(0,0,0,0);
+  const taskEnd=addDays(taskStart,6); taskEnd.setHours(23,59,59,999);
+  return {occurrenceStart,occurrenceEnd,taskStart,taskEnd,presentationDate:presentationCutoff};
 }
-function dataBetween(start,end){
+function dataBetween(taskStart,taskEnd,occurrenceStart=taskStart,occurrenceEnd=addDays(taskEnd,1)){
   const tasks=state.tasks.filter(task=>{
     if(!task.dueDate)return false;
-    const date=parseISO(task.dueDate); return date>=start&&date<=end;
+    const date=parseISO(task.dueDate); return date>=taskStart&&date<=taskEnd;
   }).sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||'')||(a.title||'').localeCompare(b.title||'','pt-BR'));
   const events=state.events.filter(event=>{
-    if(!event.eventDate)return false;
-    const date=parseISO(event.eventDate); return date>=start&&date<=end;
-  }).sort((a,b)=>(a.eventDate||'').localeCompare(b.eventDate||'')||(a.title||'').localeCompare(b.title||'','pt-BR'));
+    const date=eventDateTime(event); return date && date>=occurrenceStart && date<occurrenceEnd;
+  }).sort((a,b)=>(eventDateTime(a)?.getTime()||0)-(eventDateTime(b)?.getTime()||0)||(a.title||'').localeCompare(b.title||'','pt-BR'));
   return {tasks,events};
 }
 function reportDate(value){
@@ -534,6 +545,7 @@ function reportDate(value){
   const date=value instanceof Date?value:parseISO(value);
   return date.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
 }
+function reportDateTime(value){ return value instanceof Date ? value.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Sem data e horário'; }
 function reportSafe(value,fallback='Não informado'){
   const clean=String(value||'').replace(/\r?\n/g,' ').replace(/\s+/g,' ').trim();
   return clean||fallback;
@@ -554,9 +566,9 @@ function appendTaskList(lines,title,tasks){
   });
 }
 function generateWeeklyTextReport(){
-  const {start,end,presentationDate}=reportPresentationRange(new Date());
-  const {tasks,events}=dataBetween(start,end);
-  const nextWeekStart=new Date(presentationDate); const nextWeekEnd=addDays(nextWeekStart,6);
+  const {occurrenceStart,occurrenceEnd,taskStart,taskEnd,presentationDate}=reportPresentationRange(new Date());
+  const {tasks,events}=dataBetween(taskStart,taskEnd,occurrenceStart,occurrenceEnd);
+  const nextWeekStart=new Date(presentationDate); nextWeekStart.setHours(0,0,0,0); const nextWeekEnd=addDays(nextWeekStart,6); nextWeekEnd.setHours(23,59,59,999);
   const nextWeekTasks=dataBetween(nextWeekStart,nextWeekEnd).tasks.filter(task=>task.status!=='concluido');
   const completed=tasks.filter(task=>task.status==='concluido');
   const inProgress=tasks.filter(task=>task.status==='andamento');
@@ -568,8 +580,10 @@ function generateWeeklyTextReport(){
   const lines=[];
   lines.push('LFR 4.0 — RELATÓRIO SEMANAL DO LABORATÓRIO');
   lines.push('='.repeat(52));
-  lines.push(`Apresentação: segunda-feira, ${reportDate(presentationDate)}`);
-  lines.push(`Período relatado: ${reportDate(start)} a ${reportDate(end)} (segunda a domingo)`);
+  lines.push(`Apresentação / corte: ${reportDateTime(presentationDate)}`);
+  lines.push(`Período das tarefas: ${reportDate(taskStart)} a ${reportDate(taskEnd)} (segunda a domingo)`);
+  lines.push(`Período das ocorrências: ${reportDateTime(occurrenceStart)} até antes de ${reportDateTime(occurrenceEnd)}`);
+  lines.push('Regra de corte: ocorrências registradas exatamente às 08:00 entram no período seguinte.');
   lines.push(`Gerado em: ${new Date().toLocaleString('pt-BR')}`);
   lines.push('Fonte: Kanban LFR Planejamento Online / Supabase');
 
@@ -591,7 +605,7 @@ function generateWeeklyTextReport(){
     lines.push('Nenhuma ocorrência registrada no período.');
   }else{
     events.forEach((event,index)=>{
-      lines.push(`${index+1}. ${reportDate(event.eventDate)} | ${eventTypeLabels[event.eventType]||'Outro'} | ${reportSafe(event.title)}`);
+      lines.push(`${index+1}. ${formatEventDateTime(event)} | ${eventTypeLabels[event.eventType]||'Outro'} | ${reportSafe(event.title)}`);
       lines.push(`   Descrição: ${reportSafe(event.description)}`);
       lines.push(`   Participantes / visitantes: ${reportSafe(event.participants)}`);
       lines.push(`   Impacto / providência: ${reportSafe(event.impact)}`);
@@ -625,9 +639,9 @@ function generateWeeklyTextReport(){
   const content='\ufeff'+lines.join('\r\n');
   const blob=new Blob([content],{type:'text/plain;charset=utf-8'});
   const url=URL.createObjectURL(blob); const anchor=document.createElement('a');
-  anchor.href=url; anchor.download=`LFR_Relatorio_Semanal_${localISO(start)}_a_${localISO(end)}.txt`;
+  anchor.href=url; anchor.download=`LFR_Relatorio_Semanal_${localISO(occurrenceStart)}_08h_a_${localISO(occurrenceEnd)}_08h.txt`;
   document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
-  showToast(`Relatório TXT gerado: ${reportDate(start)} a ${reportDate(end)}.`);
+  showToast(`Relatório TXT gerado até o corte de ${reportDateTime(occurrenceEnd)}.`);
 }
 
 function bindEvents(){
