@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0b2545" />
-  <meta name="description" content="Kanban LFR semanal e mensal com Supabase e sincronização online." />
-  <title>LFR Planejamento Online — Kanban Semanal e Mensal</title>
+  <meta name="description" content="Kanban LFR com planilhas, ocorrências e relatório semanal em PowerPoint." />
+  <title>LFR Planejamento Online — Kanban, Planilhas e Relatório Semanal</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body class="auth-mode">
@@ -37,7 +37,7 @@
           <code>docs/config.js</code>
           e informe a URL e a chave publicável do seu projeto Supabase.
         </div>
-        <div class="sync-note">V3 • GitHub Pages + Supabase • desenvolvido por Guilherme Sollo</div>
+        <div class="sync-note">V4 • GitHub Pages + Supabase • planilha + PowerPoint semanal</div>
       </div>
     </div>
   </section>
@@ -103,11 +103,21 @@
         </section>
 
         <section class="sidebar-section">
-          <div class="section-title">Dados</div>
-          <button id="exportBtn" class="sidebar-btn" type="button">⇩ Exportar backup JSON</button>
+          <div class="section-title">Planilhas e backup</div>
+          <button id="exportSheetBtn" class="sidebar-btn" type="button">⇩ Exportar planilha XLSX</button>
+          <button id="importSheetBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇧ Importar planilha XLSX</button>
+          <input id="importSheetFile" class="file-input" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
+          <button id="exportBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇩ Exportar backup JSON</button>
           <button id="importBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇧ Importar backup JSON</button>
           <input id="importFile" class="file-input" type="file" accept="application/json,.json" />
+          <button id="weeklyPptBtn" class="sidebar-btn strong" type="button" style="margin-top:8px">▣ PowerPoint semanal</button>
           <button id="clearFiltersBtn" class="sidebar-btn" type="button" style="margin-top:8px">Limpar filtros</button>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title">Ocorrências do laboratório <span id="eventsCount">0</span></div>
+          <div id="eventsPanel" class="events-panel"></div>
+          <button id="newEventBtn" class="sidebar-btn" type="button">＋ Adicionar ocorrência</button>
         </section>
       </aside>
 
@@ -128,7 +138,7 @@
           <article class="column" data-status="andamento"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#e09f1f"></i>Em andamento</div><div id="count-andamento" class="count">0</div></header><div id="col-andamento" class="column-body"></div></article>
           <article class="column" data-status="concluido"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#21875a"></i>Concluído</div><div id="count-concluido" class="count">0</div></header><div id="col-concluido" class="column-body"></div></article>
         </section>
-        <footer class="app-footer">LFR Planejamento Online V3 • dados protegidos no Supabase • desenvolvido por Guilherme Sollo</footer>
+        <footer class="app-footer">LFR Planejamento Online V4 • planilha + relatório semanal • desenvolvido por Guilherme Sollo</footer>
       </main>
     </div>
   </div>
@@ -162,10 +172,32 @@
     </section>
   </div>
 
+
+  <div id="eventModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="eventModalTitle">
+      <header class="modal-head"><h2 id="eventModalTitle">Nova ocorrência</h2><button id="closeEventModalBtn" class="modal-close" type="button">×</button></header>
+      <form id="eventForm">
+        <div class="modal-body"><div class="form-grid">
+          <div class="field"><label for="eventDate">Data *</label><input id="eventDate" class="input" type="date" required /></div>
+          <div class="field"><label for="eventType">Tipo *</label><select id="eventType" class="select" required>
+            <option value="visita">Visita</option><option value="visita_tecnica">Visita técnica</option><option value="apresentacao">Apresentação</option><option value="manutencao">Manutenção</option><option value="queda_luz">Queda de luz</option><option value="treinamento">Treinamento</option><option value="reuniao">Reunião</option><option value="auditoria">Auditoria</option><option value="seguranca">Segurança</option><option value="outro">Outro</option>
+          </select></div>
+          <div class="field full"><label for="eventTitle">Título *</label><input id="eventTitle" class="input" maxlength="140" required placeholder="Ex.: Visita técnica no laboratório" /></div>
+          <div class="field full"><label for="eventDescription">Descrição / resumo</label><textarea id="eventDescription" class="textarea" maxlength="1500" placeholder="O que aconteceu, quem participou e observações importantes"></textarea></div>
+          <div class="field full"><label for="eventParticipants">Participantes / visitantes</label><input id="eventParticipants" class="input" maxlength="240" placeholder="Ex.: Equipe LFR, manutenção, cliente, técnico responsável" /></div>
+          <div class="field full"><label for="eventImpact">Impacto / providência</label><input id="eventImpact" class="input" maxlength="240" placeholder="Ex.: Sem impacto, interrompeu análise por 30 minutos, ficou pendente" /></div>
+        </div></div>
+        <footer class="modal-actions"><button id="deleteEventBtn" class="btn danger hidden" type="button">Excluir ocorrência</button><div class="modal-actions-right"><button id="cancelEventBtn" class="btn" type="button">Cancelar</button><button class="btn primary" type="submit">Salvar ocorrência</button></div></footer>
+      </form>
+    </section>
+  </div>
+
   <div id="loadingCover" class="loading-cover hidden"><div id="loadingText" class="loading-card">Sincronizando dados...</div></div>
   <div id="toast" class="toast"></div>
 
   <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
