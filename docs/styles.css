@@ -450,3 +450,22 @@ body.auth-mode{min-height:100vh;background:linear-gradient(145deg,#061f3b,#0b5ca
   .current-date-banner .context-detail{text-align:left}
   .history-lock-note{display:none}
 }
+
+
+/* ==== V8 Relatório HTML + ícones ==== */
+.btn-icon{display:inline-flex;align-items:center;justify-content:center;min-width:1.2em}
+.animated-emoji{animation:emojiBob 2.4s ease-in-out infinite}
+.sidebar-btn.strong{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#fff;border:0;box-shadow:var(--shadow-card)}
+.sidebar-btn.strong:hover{filter:brightness(1.04)}
+.section-title span:first-child{display:inline-flex;align-items:center;gap:6px}
+.brand-mark{position:relative;overflow:hidden}
+.brand-mark::after{content:"✨";position:absolute;right:-2px;top:-3px;font-size:14px;animation:sparklePulse 2.2s ease-in-out infinite}
+.summary-card strong{display:flex;align-items:center;gap:6px}
+.current-date-banner{display:flex;align-items:center;gap:8px}
+.current-date-banner::before{content:"🗓️";font-size:16px}
+.event-item{position:relative;overflow:hidden}
+.event-item::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(180deg,var(--warning),var(--primary))}
+.auth-logo{position:relative;overflow:hidden}
+.auth-logo::after{content:"⚡";position:absolute;right:-4px;top:-6px;font-size:14px;animation:sparklePulse 1.8s ease-in-out infinite}
+@keyframes emojiBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+@keyframes sparklePulse{0%,100%{transform:scale(1) rotate(0deg);opacity:.8}50%{transform:scale(1.18) rotate(8deg);opacity:1}}

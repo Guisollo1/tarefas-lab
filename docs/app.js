@@ -717,6 +717,186 @@ function reportSafe(value,fallback='Não informado'){
   const clean=String(value||'').replace(/\r?\n/g,' ').replace(/\s+/g,' ').trim();
   return clean||fallback;
 }
+function htmlEsc(value){
+  return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+}
+function downloadBlob(content,type,fileName){
+  const blob=new Blob([content],{type});
+  const url=URL.createObjectURL(blob); const anchor=document.createElement('a');
+  anchor.href=url; anchor.download=fileName; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+}
+function reportMetrics(tasks,events){
+  return {
+    total:tasks.length,
+    completed:tasks.filter(task=>task.status==='concluido').length,
+    inProgress:tasks.filter(task=>task.status==='andamento').length,
+    pending:tasks.filter(task=>task.status==='planejado'||task.status==='afazer').length,
+    overdue:tasks.filter(isOverdue).length,
+    events:events.length
+  };
+}
+function eventTypeIcon(type){
+  return {visita:'👥',visita_tecnica:'🛠️',apresentacao:'📽️',manutencao:'🔧',queda_luz:'⚡',treinamento:'🎓',reuniao:'🗣️',auditoria:'📋',seguranca:'🦺',outro:'📌'}[type]||'📌';
+}
+function statusIcon(status){
+  return {planejado:'🗂️',afazer:'📌',andamento:'⚙️',concluido:'✅'}[status]||'📌';
+}
+function priorityIcon(priority){
+  return {alta:'🔴',media:'🟠',baixa:'🟢'}[priority]||'⚪';
+}
+function groupedTasksByStatus(tasks){
+  return {
+    concluido:tasks.filter(task=>task.status==='concluido'),
+    andamento:tasks.filter(task=>task.status==='andamento'),
+    pendente:tasks.filter(task=>task.status==='planejado'||task.status==='afazer')
+  };
+}
+function weeklyResponsibleSummary(tasks){
+  return state.people.map(person=>{
+    const assigned=tasks.filter(task=>taskHasPerson(task,person.id));
+    const individualDone=assigned.filter(task=>getTaskAssignees(task).some(item=>item.personId===person.id&&item.done)).length;
+    return {name:person.name,total:assigned.length,done:individualDone,pending:assigned.length-individualDone};
+  }).filter(item=>item.total>0).sort((a,b)=>b.total-a.total||a.name.localeCompare(b.name,'pt-BR'));
+}
+function buildWeeklyHtmlReport(){
+  const {occurrenceStart,occurrenceEnd,taskStart,taskEnd,presentationDate}=reportPresentationRange(new Date());
+  const {tasks,events}=dataBetween(taskStart,taskEnd,occurrenceStart,occurrenceEnd);
+  const nextWeekStart=new Date(presentationDate); nextWeekStart.setHours(0,0,0,0);
+  const nextWeekEnd=addDays(nextWeekStart,6); nextWeekEnd.setHours(23,59,59,999);
+  const nextWeekTasks=dataBetween(nextWeekStart,nextWeekEnd).tasks.filter(task=>task.status!=='concluido');
+  const metrics=reportMetrics(tasks,events);
+  const groups=groupedTasksByStatus(tasks);
+  const peopleSummary=weeklyResponsibleSummary(tasks);
+  const eventCounts=events.reduce((acc,event)=>{ const label=eventTypeLabels[event.eventType]||'Outro'; acc[label]=(acc[label]||0)+1; return acc; },{});
+  const eventBadges = Object.entries(eventCounts).map(([name,count])=>`<span class="mini-badge">${htmlEsc(name)}: <strong>${count}</strong></span>`).join('') || '<span class="muted">Nenhuma ocorrência registrada.</span>';
+  const taskCard = task => `
+    <article class="report-task-card report-status-${htmlEsc(task.status)}">
+      <div class="report-task-top">
+        <div>
+          <div class="report-task-title">${statusIcon(task.status)} ${htmlEsc(task.title)}</div>
+          <div class="report-task-sub">${htmlEsc(taskPeriodLabel(task))} • ${htmlEsc(statusLabels[task.status]||task.status)} • ${priorityIcon(task.priority)} ${htmlEsc(task.priority||'média')}</div>
+        </div>
+        <span class="pill">${task.repeatUntilDone?'Repetitiva até concluir':'Período único'}</span>
+      </div>
+      ${task.description?`<div class="report-task-desc">${htmlEsc(task.description)}</div>`:''}
+      <div class="report-line"><strong>Responsáveis:</strong> ${htmlEsc(taskAssigneeReport(task))}</div>
+      <div class="report-line"><strong>Categoria:</strong> ${htmlEsc(reportSafe(task.category))}</div>
+      ${taskCompletedDate(task)?`<div class="report-line"><strong>Concluída em:</strong> ${htmlEsc(reportDateTime(taskCompletedDate(task)))}</div>`:''}
+    </article>`;
+  const eventCard = event => `
+    <article class="event-card">
+      <div class="event-card-top">
+        <span class="event-pill">${eventTypeIcon(event.eventType)} ${htmlEsc(eventTypeLabels[event.eventType]||'Outro')}</span>
+        <span class="event-date">${htmlEsc(formatEventDateTime(event))}</span>
+      </div>
+      <div class="event-title-html">${htmlEsc(event.title)}</div>
+      <div class="event-desc-html">${htmlEsc(reportSafe(event.description))}</div>
+      <div class="report-line"><strong>Participantes / visitantes:</strong> ${htmlEsc(reportSafe(event.participants))}</div>
+      <div class="report-line"><strong>Impacto / providência:</strong> ${htmlEsc(reportSafe(event.impact))}</div>
+    </article>`;
+  const peopleRows = peopleSummary.length ? peopleSummary.map(item=>`<tr><td>${htmlEsc(item.name)}</td><td>${item.total}</td><td>${item.done}</td><td>${item.pending}</td></tr>`).join('') : '<tr><td colspan="4">Nenhum responsável com tarefa no período.</td></tr>';
+  const nextSteps = nextWeekTasks.length ? nextWeekTasks.map(task=>`<li><strong>${htmlEsc(task.title)}</strong> — ${htmlEsc(taskPeriodLabel(task))} — ${htmlEsc(taskAssigneeReport(task))}</li>`).join('') : '<li>Nenhuma pendência aberta para a próxima semana.</li>';
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Relatório Semanal LFR</title>
+<style>
+:root{--bg:#eef3f8;--surface:#ffffff;--surface-2:#f6f9fc;--line:#d9e2ec;--text:#182335;--muted:#607086;--primary:#0b5cab;--teal:#0b7a75;--warning:#d99813;--success:#21875a;--danger:#c9302c;--shadow:0 12px 28px rgba(12,32,58,.08)}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}
+.report-shell{max-width:1160px;margin:0 auto;padding:26px 18px 42px}.hero{background:linear-gradient(135deg,#082b52,#0b5cab 56%,#0b7a75);color:#fff;border-radius:24px;padding:28px;box-shadow:0 18px 50px rgba(7,26,48,.22)}
+.hero-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;flex-wrap:wrap}.brand{display:flex;gap:14px;align-items:center}.brand-mark{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;border:3px solid rgba(255,255,255,.8);font-weight:900}.hero h1{margin:0 0 6px;font-size:30px}.hero p{margin:0;color:rgba(255,255,255,.85)}
+.hero-tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.hero-tag{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);font-size:13px;font-weight:700}
+.metrics{display:grid;grid-template-columns:repeat(6,minmax(140px,1fr));gap:12px;margin:18px 0 0}.metric{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.18);border-radius:18px;padding:14px}.metric strong{display:block;font-size:28px;margin-top:6px}.metric span{font-size:12px;color:rgba(255,255,255,.82)}
+.report-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin-top:18px}.panel{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:20px;box-shadow:var(--shadow)}.panel h2{margin:0 0 12px;font-size:20px}.panel h3{margin:0 0 12px;font-size:16px}.muted{color:var(--muted)}
+.mini-badge{display:inline-flex;gap:6px;align-items:center;padding:8px 10px;border-radius:999px;background:#eef5fd;border:1px solid #d7e7f8;font-size:12px;font-weight:700;margin:0 8px 8px 0}
+.timeline{display:flex;flex-direction:column;gap:12px}.event-card{border:1px solid var(--line);background:var(--surface-2);border-radius:18px;padding:14px}.event-card-top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.event-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;background:#e8f2fc;color:var(--primary);padding:6px 10px;font-size:12px;font-weight:800}.event-date{font-size:12px;color:var(--muted);font-weight:700}.event-title-html{font-size:16px;font-weight:850;margin-bottom:6px}.event-desc-html{font-size:13px;color:var(--muted);line-height:1.45;margin-bottom:8px}
+.task-group{margin-top:18px}.task-group-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.group-badge{padding:8px 10px;border-radius:999px;background:#f1f6fb;border:1px solid var(--line);font-size:12px;font-weight:800}.task-list{display:flex;flex-direction:column;gap:12px}.report-task-card{border:1px solid var(--line);border-left-width:5px;background:var(--surface-2);border-radius:18px;padding:14px}.report-status-concluido{border-left-color:var(--success)}.report-status-andamento{border-left-color:var(--warning)}.report-status-planejado,.report-status-afazer,.report-status-pendente{border-left-color:var(--primary)}
+.report-task-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.report-task-title{font-size:16px;font-weight:900}.report-task-sub{font-size:12px;color:var(--muted);margin-top:4px}.report-task-desc{font-size:13px;line-height:1.55;color:var(--text);margin:10px 0}.pill{display:inline-flex;padding:7px 10px;border-radius:999px;background:#eef5fd;color:var(--primary);font-size:12px;font-weight:800}.report-line{font-size:13px;line-height:1.5;margin-top:4px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;font-size:13px}th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:#f8fbfe}.checklist{padding-left:18px;margin:8px 0 0}.checklist li{margin-bottom:8px;line-height:1.45}
+.footer-note{margin-top:18px;font-size:12px;color:var(--muted);text-align:center}
+@media print{body{background:#fff}.report-shell{max-width:none;padding:0}.hero{box-shadow:none}.panel{box-shadow:none;break-inside:avoid}.event-card,.report-task-card{break-inside:avoid}.footer-note{margin-top:10px}}
+@media (max-width:980px){.metrics{grid-template-columns:repeat(2,1fr)}.report-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="report-shell">
+  <section class="hero">
+    <div class="hero-top">
+      <div>
+        <div class="brand"><div class="brand-mark">LFR</div><div><h1>Relatório Semanal do Laboratório</h1><p>Página HTML estilizada para leitura, impressão e apresentação</p></div></div>
+      </div>
+      <div class="muted-box">
+        <div class="hero-tag">🕗 Apresentação / corte: ${htmlEsc(reportDateTime(presentationDate))}</div>
+      </div>
+    </div>
+    <div class="hero-tags">
+      <span class="hero-tag">📅 Tarefas: ${htmlEsc(reportDate(taskStart))} a ${htmlEsc(reportDate(taskEnd))}</span>
+      <span class="hero-tag">⚠️ Ocorrências: ${htmlEsc(reportDateTime(occurrenceStart))} até antes de ${htmlEsc(reportDateTime(occurrenceEnd))}</span>
+      <span class="hero-tag">ℹ️ Regra: ocorrências às 08:00 entram no próximo período</span>
+    </div>
+    <div class="metrics">
+      <div class="metric"><span>📋 Tarefas no período</span><strong>${metrics.total}</strong></div>
+      <div class="metric"><span>✅ Concluídas</span><strong>${metrics.completed}</strong></div>
+      <div class="metric"><span>⚙️ Em andamento</span><strong>${metrics.inProgress}</strong></div>
+      <div class="metric"><span>📌 Pendentes</span><strong>${metrics.pending}</strong></div>
+      <div class="metric"><span>⏰ Atrasadas</span><strong>${metrics.overdue}</strong></div>
+      <div class="metric"><span>⚠️ Ocorrências</span><strong>${metrics.events}</strong></div>
+    </div>
+  </section>
+
+  <section class="report-grid">
+    <div class="panel">
+      <h2>⚠️ Ocorrências da semana</h2>
+      <div>${eventBadges}</div>
+      <div class="timeline">${events.length ? events.map(eventCard).join('') : '<div class="muted">Nenhuma ocorrência registrada no período.</div>'}</div>
+    </div>
+    <div class="panel">
+      <h2>👥 Resumo por responsável</h2>
+      <div class="table-wrap"><table><thead><tr><th>Responsável</th><th>Total</th><th>Concluiu</th><th>Pendente</th></tr></thead><tbody>${peopleRows}</tbody></table></div>
+      <div class="task-group">
+        <h3>🗣️ Observações para a apresentação</h3>
+        <ul class="checklist">
+          <li>Confirmar se todas as ocorrências relevantes foram cadastradas.</li>
+          <li>Destacar impactos, providências tomadas e pendências que precisam de apoio.</li>
+          <li>Usar esta página como apoio visual ou imprimir em PDF.</li>
+        </ul>
+      </div>
+      <div class="task-group">
+        <h3>➡️ Próximos passos — ${htmlEsc(reportDate(nextWeekStart))} a ${htmlEsc(reportDate(nextWeekEnd))}</h3>
+        <ul class="checklist">${nextSteps}</ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel task-group">
+    <div class="task-group-head"><h2>✅ Tarefas concluídas</h2><span class="group-badge">${groups.concluido.length}</span></div>
+    <div class="task-list">${groups.concluido.length ? groups.concluido.map(taskCard).join('') : '<div class="muted">Nenhuma tarefa concluída no período.</div>'}</div>
+  </section>
+
+  <section class="panel task-group">
+    <div class="task-group-head"><h2>⚙️ Tarefas em andamento</h2><span class="group-badge">${groups.andamento.length}</span></div>
+    <div class="task-list">${groups.andamento.length ? groups.andamento.map(taskCard).join('') : '<div class="muted">Nenhuma tarefa em andamento no período.</div>'}</div>
+  </section>
+
+  <section class="panel task-group">
+    <div class="task-group-head"><h2>📌 Tarefas planejadas, pendentes ou a fazer</h2><span class="group-badge">${groups.pendente.length}</span></div>
+    <div class="task-list">${groups.pendente.length ? groups.pendente.map(taskCard).join('') : '<div class="muted">Nenhuma tarefa pendente no período.</div>'}</div>
+  </section>
+
+  <div class="footer-note">Relatório gerado em ${htmlEsc(new Date().toLocaleString('pt-BR'))} • LFR Planejamento Online • desenvolvido por Guilherme Sollo</div>
+</div>
+</body>
+</html>`;
+  return {html,occurrenceStart,occurrenceEnd};
+}
+function generateWeeklyHtmlReport(){
+  const {html,occurrenceStart,occurrenceEnd}=buildWeeklyHtmlReport();
+  downloadBlob('﻿'+html,'text/html;charset=utf-8',`LFR_Relatorio_Semanal_${localISO(occurrenceStart)}_a_${localISO(occurrenceEnd)}.html`);
+  showToast(`Relatório HTML gerado até o corte de ${reportDateTime(occurrenceEnd)}.`);
+}
 function taskAssigneeReport(task){
   const assignees=getTaskAssignees(task);
   if(!assignees.length)return 'Sem responsável';
@@ -805,10 +985,7 @@ function generateWeeklyTextReport(){
   lines.push('', 'desenvolvido por Guilherme Sollo');
 
   const content='\ufeff'+lines.join('\r\n');
-  const blob=new Blob([content],{type:'text/plain;charset=utf-8'});
-  const url=URL.createObjectURL(blob); const anchor=document.createElement('a');
-  anchor.href=url; anchor.download=`LFR_Relatorio_Semanal_${localISO(occurrenceStart)}_08h_a_${localISO(occurrenceEnd)}_08h.txt`;
-  document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+  downloadBlob(content,'text/plain;charset=utf-8',`LFR_Relatorio_Semanal_${localISO(occurrenceStart)}_08h_a_${localISO(occurrenceEnd)}_08h.txt`);
   showToast(`Relatório TXT gerado até o corte de ${reportDateTime(occurrenceEnd)}.`);
 }
 
@@ -821,7 +998,7 @@ function bindEvents(){
   $('closeTeamModalBtn').addEventListener('click',closeTeamModal);$('doneTeamBtn').addEventListener('click',closeTeamModal);$('addPersonBtn').addEventListener('click',addPerson);$('newPersonName').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();addPerson();}});
   $('searchInput').addEventListener('input',()=>{renderBoard();renderMetrics();});$('priorityFilter').addEventListener('change',()=>{renderBoard();renderMetrics();});$('categoryFilter').addEventListener('change',()=>{renderBoard();renderMetrics();});$('clearFiltersBtn').addEventListener('click',resetFilters);
   $('exportBtn').addEventListener('click',exportData);$('importBtn').addEventListener('click',()=>$('importFile').click());$('importFile').addEventListener('change',event=>importBackup(event.target.files?.[0]));
-  $('exportSheetBtn').addEventListener('click',exportSpreadsheet);$('importSheetBtn').addEventListener('click',()=>$('importSheetFile').click());$('importSheetFile').addEventListener('change',event=>importSpreadsheet(event.target.files?.[0]));$('weeklyTxtBtn').addEventListener('click',generateWeeklyTextReport);
+  $('exportSheetBtn').addEventListener('click',exportSpreadsheet);$('importSheetBtn').addEventListener('click',()=>$('importSheetFile').click());$('importSheetFile').addEventListener('change',event=>importSpreadsheet(event.target.files?.[0])); const weeklyHtmlBtn=$('weeklyHtmlBtn'); if(weeklyHtmlBtn) weeklyHtmlBtn.addEventListener('click',generateWeeklyHtmlReport); $('weeklyTxtBtn').addEventListener('click',generateWeeklyTextReport);
   $('newEventBtn').addEventListener('click',()=>openEventModal());$('closeEventModalBtn').addEventListener('click',closeEventModal);$('cancelEventBtn').addEventListener('click',closeEventModal);$('eventForm').addEventListener('submit',saveEvent);$('deleteEventBtn').addEventListener('click',deleteEvent);
   $('mobileSidebarBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));
   $('closePastGuardBtn').addEventListener('click',()=>closePastGuard(false));$('cancelPastGuardBtn').addEventListener('click',()=>closePastGuard(false));$('confirmPastGuardBtn').addEventListener('click',confirmPastGuard);$('pastGuardInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();confirmPastGuard();}});

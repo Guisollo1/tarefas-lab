@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0b2545" />
-  <meta name="description" content="Kanban LFR com planilhas, ocorrências e relatório semanal em TXT." />
-  <title>LFR Planejamento Online — Kanban, Planilhas e Relatório TXT</title>
+  <meta name="description" content="Kanban LFR com planilhas, ocorrências e relatório semanal em HTML e TXT." />
+  <title>LFR Planejamento Online — Kanban, Planilhas e Relatórios HTML</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body class="auth-mode">
@@ -14,7 +14,7 @@
       <div class="auth-banner">
         <div class="auth-logo">LFR</div>
         <h1>Planejamento Online</h1>
-        <p>Kanban semanal e mensal sincronizado pelo Supabase</p>
+        <p>📋 Kanban semanal e mensal sincronizado pelo Supabase</p>
       </div>
       <div class="auth-body">
         <div id="authMessage" class="auth-message">Entre com o usuário cadastrado no Supabase.</div>
@@ -37,7 +37,7 @@
           <code>docs/config.js</code>
           e informe a URL e a chave publicável do seu projeto Supabase.
         </div>
-        <div class="sync-note">V5 • GitHub Pages + Supabase • planilha + relatório TXT semanal</div>
+        <div class="sync-note">V8 • GitHub Pages + Supabase • planilha + relatórios HTML/TXT semanais</div>
       </div>
     </div>
   </section>
@@ -48,7 +48,7 @@
         <div class="brand-mark">LFR</div>
         <div>
           <h1>Planejamento de Tarefas</h1>
-          <p>Kanban online • múltiplos responsáveis • sincronização em tempo real</p>
+          <p>✨ Kanban online • múltiplos responsáveis • sincronização em tempo real</p>
         </div>
       </div>
 
@@ -69,8 +69,8 @@
         <button id="mobileSidebarBtn" class="icon-btn mobile-sidebar-btn" type="button" title="Filtros">☰</button>
         <div id="connectionBadge" class="connection-badge"><i></i><span>Conectando</span></div>
         <button id="themeBtn" class="icon-btn" type="button" title="Alternar tema">◐</button>
-        <button id="teamBtn" class="head-btn" type="button">Responsáveis</button>
-        <button id="newTaskBtn" class="head-btn primary" type="button">＋ Nova tarefa</button>
+        <button id="teamBtn" class="head-btn" type="button"><span class="btn-icon animated-emoji">👥</span> Responsáveis</button>
+        <button id="newTaskBtn" class="head-btn primary" type="button"><span class="btn-icon animated-emoji">✨</span> Nova tarefa</button>
         <div class="user-box">
           <span id="userEmail" class="user-email"></span>
           <button id="logoutBtn" class="head-btn" type="button">Sair</button>
@@ -81,7 +81,7 @@
     <div class="app-shell">
       <aside id="sidebar" class="sidebar">
         <section class="sidebar-section">
-          <div class="section-title">Resumo do período</div>
+          <div class="section-title"><span>📊 Resumo do período</span></div>
           <div class="summary-grid">
             <div class="summary-card"><strong id="metricTotal">0</strong><span>Tarefas</span></div>
             <div class="summary-card"><strong id="metricDone">0</strong><span>Concluídas</span></div>
@@ -97,27 +97,28 @@
         </section>
 
         <section class="sidebar-section">
-          <div class="section-title">Responsáveis <span id="peopleCount">0</span></div>
+          <div class="section-title"><span>👥 Responsáveis</span> <span id="peopleCount">0</span></div>
           <div id="personFilters" class="person-list"></div>
           <button id="managePeopleBtn" class="sidebar-btn" type="button">＋ Gerenciar responsáveis</button>
         </section>
 
         <section class="sidebar-section">
-          <div class="section-title">Planilhas e backup</div>
-          <button id="exportSheetBtn" class="sidebar-btn" type="button">⇩ Exportar planilha XLSX</button>
-          <button id="importSheetBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇧ Importar planilha XLSX</button>
+          <div class="section-title"><span>📁 Planilhas, relatórios e backup</span></div>
+          <button id="exportSheetBtn" class="sidebar-btn" type="button"><span class="btn-icon">📊</span> Exportar planilha XLSX</button>
+          <button id="importSheetBtn" class="sidebar-btn" type="button" style="margin-top:8px"><span class="btn-icon">📥</span> Importar planilha XLSX</button>
           <input id="importSheetFile" class="file-input" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
-          <button id="exportBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇩ Exportar backup JSON</button>
-          <button id="importBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇧ Importar backup JSON</button>
+          <button id="exportBtn" class="sidebar-btn" type="button" style="margin-top:8px"><span class="btn-icon">🧰</span> Exportar backup JSON</button>
+          <button id="importBtn" class="sidebar-btn" type="button" style="margin-top:8px"><span class="btn-icon">📦</span> Importar backup JSON</button>
           <input id="importFile" class="file-input" type="file" accept="application/json,.json" />
-          <button id="weeklyTxtBtn" class="sidebar-btn strong" type="button" style="margin-top:8px" title="Gera o relatório com ocorrências de segunda 08:00 até a segunda seguinte antes das 08:00">▤ Relatório TXT para segunda-feira</button>
-          <button id="clearFiltersBtn" class="sidebar-btn" type="button" style="margin-top:8px">Limpar filtros</button>
+          <button id="weeklyHtmlBtn" class="sidebar-btn strong" type="button" style="margin-top:8px" title="Gera um relatório HTML estilizado para a apresentação de segunda-feira"><span class="btn-icon animated-emoji">📝</span> Relatório HTML da semana</button>
+          <button id="weeklyTxtBtn" class="sidebar-btn" type="button" style="margin-top:8px" title="Gera o relatório com ocorrências de segunda 08:00 até a segunda seguinte antes das 08:00"><span class="btn-icon">📄</span> Relatório TXT para segunda-feira</button>
+          <button id="clearFiltersBtn" class="sidebar-btn" type="button" style="margin-top:8px"><span class="btn-icon">🧹</span> Limpar filtros</button>
         </section>
 
         <section class="sidebar-section">
-          <div class="section-title">Ocorrências do laboratório <span id="eventsCount">0</span></div>
+          <div class="section-title"><span>⚠️ Ocorrências do laboratório</span> <span id="eventsCount">0</span></div>
           <div id="eventsPanel" class="events-panel"></div>
-          <button id="newEventBtn" class="sidebar-btn" type="button">＋ Adicionar ocorrência</button>
+          <button id="newEventBtn" class="sidebar-btn" type="button"><span class="btn-icon animated-emoji">➕</span> Adicionar ocorrência</button>
         </section>
       </aside>
 
@@ -128,18 +129,18 @@
             <option value="all">Todas as prioridades</option><option value="alta">Prioridade alta</option><option value="media">Prioridade média</option><option value="baixa">Prioridade baixa</option>
           </select>
           <select id="categoryFilter" class="select" aria-label="Filtrar categoria"><option value="all">Todas as categorias</option></select>
-          <button id="toolbarNewTaskBtn" class="btn primary" type="button">＋ Criar tarefa</button>
+          <button id="toolbarNewTaskBtn" class="btn primary" type="button"><span class="btn-icon animated-emoji">🚀</span> Criar tarefa</button>
         </div>
 
         <div id="currentDateBanner" class="current-date-banner"></div>
         <div id="monthStrip" class="month-strip"></div>
         <section id="board" class="board" aria-label="Quadro Kanban">
-          <article class="column" data-status="planejado"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#778395"></i>Planejado</div><div id="count-planejado" class="count">0</div></header><div id="col-planejado" class="column-body"></div></article>
-          <article class="column" data-status="afazer"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#3478c8"></i>A fazer</div><div id="count-afazer" class="count">0</div></header><div id="col-afazer" class="column-body"></div></article>
-          <article class="column" data-status="andamento"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#e09f1f"></i>Em andamento</div><div id="count-andamento" class="count">0</div></header><div id="col-andamento" class="column-body"></div></article>
-          <article class="column" data-status="concluido"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#21875a"></i>Concluído</div><div id="count-concluido" class="count">0</div></header><div id="col-concluido" class="column-body"></div></article>
+          <article class="column" data-status="planejado"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#778395"></i>🗂️ Planejado</div><div id="count-planejado" class="count">0</div></header><div id="col-planejado" class="column-body"></div></article>
+          <article class="column" data-status="afazer"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#3478c8"></i>📌 A fazer</div><div id="count-afazer" class="count">0</div></header><div id="col-afazer" class="column-body"></div></article>
+          <article class="column" data-status="andamento"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#e09f1f"></i>⚙️ Em andamento</div><div id="count-andamento" class="count">0</div></header><div id="col-andamento" class="column-body"></div></article>
+          <article class="column" data-status="concluido"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#21875a"></i>✅ Concluído</div><div id="count-concluido" class="count">0</div></header><div id="col-concluido" class="column-body"></div></article>
         </section>
-        <footer class="app-footer">LFR Planejamento Online V7 • tarefas por dia, semana ou mês • desenvolvido por Guilherme Sollo</footer>
+        <footer class="app-footer">LFR Planejamento Online V8 • tarefas por dia, semana ou mês • relatório HTML estilizado • desenvolvido por Guilherme Sollo</footer>
       </main>
     </div>
   </div>
