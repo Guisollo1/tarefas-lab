@@ -2,7 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const CONFIG = window.KANBAN_CONFIG || {};
 const THEME_KEY = 'lfr_planejamento_online_theme';
-const CACHE_KEY = 'lfr_planejamento_online_cache_v4';
+const CACHE_KEY = 'lfr_planejamento_online_cache_v5';
 const statusOrder = ['planejado', 'afazer', 'andamento', 'concluido'];
 const statusLabels = { planejado:'Planejado', afazer:'A fazer', andamento:'Em andamento', concluido:'Concluído' };
 const priorityColors = { alta:'#d94b45', media:'#e09f1f', baixa:'#2f8e67' };
@@ -509,21 +509,125 @@ async function importSpreadsheet(file){
     await loadData(false); showToast('Planilha importada com sucesso.');
   }catch(error){console.error(error);showToast(friendlyError(error));}finally{$('importSheetFile').value='';setLoading(false);}
 }
-function addPptTable(pptx,slide,rows,x,y,w,h,fontSize=10){
-  slide.addTable(rows,{x,y,w,h,border:{type:'solid',color:'D9E2EC',pt:0.7},fill:'FFFFFF',color:'172033',margin:0.05,fontSize,autoFit:true,breakLine:false});
+function reportPresentationRange(referenceDate=new Date()){
+  const reference=new Date(referenceDate); reference.setHours(0,0,0,0);
+  const currentWeekStart=startOfWeek(reference);
+  const isMonday=reference.getDay()===1;
+  const presentationDate=isMonday ? reference : addDays(currentWeekStart,7);
+  const start=isMonday ? addDays(currentWeekStart,-7) : currentWeekStart;
+  const end=addDays(start,6);
+  return {start,end,presentationDate};
 }
-function generateWeeklyPowerPoint(){
-  if(!window.pptxgen){showToast('Biblioteca do PowerPoint não carregou. Confira a internet.');return;}
-  const {start,end,tasks,events}=getWeeklyData(); const pptx=new window.pptxgen(); pptx.layout='LAYOUT_WIDE'; pptx.author='Guilherme Sollo'; pptx.company='LFR'; pptx.subject='Relatório semanal do laboratório'; pptx.title=`Relatório semanal LFR ${localISO(start)} a ${localISO(end)}`; pptx.lang='pt-BR'; pptx.theme={headFontFace:'Aptos Display',bodyFontFace:'Aptos'};
-  const done=tasks.filter(t=>t.status==='concluido').length, progress=tasks.filter(t=>t.status==='andamento').length, late=tasks.filter(isOverdue).length;
-  let slide=pptx.addSlide(); slide.background={color:'0B2545'}; slide.addText('LFR 4.0',{x:0.55,y:0.42,w:1.6,h:0.45,fontSize:20,bold:true,color:'FFFFFF'}); slide.addText('Relatório semanal do laboratório',{x:0.7,y:1.5,w:11.6,h:0.65,fontSize:36,bold:true,color:'FFFFFF'}); slide.addText(`${start.toLocaleDateString('pt-BR')} a ${end.toLocaleDateString('pt-BR')}`,{x:0.7,y:2.22,w:8,h:0.4,fontSize:18,color:'D7E7F8'}); slide.addText('Tarefas, responsáveis e ocorrências registradas no Kanban',{x:0.7,y:5.6,w:10.8,h:0.35,fontSize:15,color:'D7E7F8'}); slide.addText('desenvolvido por Guilherme Sollo',{x:0.7,y:6.75,w:4.6,h:0.25,fontSize:10,color:'B7C7DA'});
-  slide=pptx.addSlide(); slide.addText('Resumo da semana',{x:0.45,y:0.35,w:8,h:0.45,fontSize:26,bold:true,color:'0B2545'}); const metrics=[['Tarefas',tasks.length],['Concluídas',done],['Em andamento',progress],['Atrasadas',late],['Ocorrências',events.length]]; metrics.forEach((m,i)=>{slide.addShape(pptx.ShapeType.roundRect,{x:0.55+i*2.5,y:1.15,w:2.15,h:1.2,rectRadius:0.08,fill:{color:['E8F2FC','EAF7F1','FFF4D8','FDEAEA','EEF2F7'][i]},line:{color:'D9E2EC'}}); slide.addText(String(m[1]),{x:0.78+i*2.5,y:1.32,w:1.6,h:0.36,fontSize:26,bold:true,color:'0B2545'}); slide.addText(m[0],{x:0.78+i*2.5,y:1.78,w:1.6,h:0.26,fontSize:10,bold:true,color:'667085'});});
-  const byPerson=state.people.map(p=>{const assigned=tasks.filter(t=>taskHasPerson(t,p.id)); return [p.name,assigned.length,assigned.filter(t=>t.status==='concluido').length,assigned.filter(isOverdue).length];}).filter(r=>r[1]>0).sort((a,b)=>b[1]-a[1]).slice(0,10); addPptTable(pptx,slide,[[{text:'Responsável',options:{bold:true}},{text:'Total',options:{bold:true}},{text:'Concluídas',options:{bold:true}},{text:'Atrasadas',options:{bold:true}}],...byPerson],0.65,3.0,6.0,2.9,10);
-  const eventSummary=Object.entries(events.reduce((acc,e)=>{const label=eventTypeLabels[e.eventType]||'Outro'; acc[label]=(acc[label]||0)+1; return acc;},{})).map(([k,v])=>[k,v]); addPptTable(pptx,slide,[[{text:'Ocorrência',options:{bold:true}},{text:'Qtd.',options:{bold:true}}],...eventSummary],7.1,3.0,5.5,2.9,10);
-  slide=pptx.addSlide(); slide.addText('Tarefas concluídas e em andamento',{x:0.45,y:0.35,w:10,h:0.45,fontSize:24,bold:true,color:'0B2545'}); const taskRows=[['Data','Status','Tarefa','Responsáveis']].concat(tasks.slice(0,14).map(t=>[formatShortDate(t.dueDate),statusLabels[t.status]||t.status,t.title,assigneeNames(t).join(', ')])); addPptTable(pptx,slide,taskRows,0.45,1.0,12.4,5.8,8.8);
-  slide=pptx.addSlide(); slide.addText('Ocorrências do laboratório',{x:0.45,y:0.35,w:10,h:0.45,fontSize:24,bold:true,color:'0B2545'}); const eventRows=[['Data','Tipo','Ocorrência','Impacto / providência']].concat(events.slice(0,14).map(e=>[formatShortDate(e.eventDate),eventTypeLabels[e.eventType]||e.eventType,e.title,e.impact||e.description||''])); addPptTable(pptx,slide,eventRows,0.45,1.0,12.4,5.8,8.8);
-  slide=pptx.addSlide(); slide.addText('Pendências e próximos passos',{x:0.45,y:0.35,w:10,h:0.45,fontSize:24,bold:true,color:'0B2545'}); const pending=tasks.filter(t=>t.status!=='concluido').sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||'')).slice(0,15); const pendingRows=[['Prazo','Etapa','Tarefa','Responsáveis']].concat(pending.map(t=>[formatShortDate(t.dueDate),statusLabels[t.status]||t.status,t.title,assigneeNames(t).join(', ')])); addPptTable(pptx,slide,pendingRows,0.45,1.0,12.4,5.5,8.8); slide.addText('Observação: revise manualmente antes da apresentação de segunda-feira.',{x:0.55,y:6.72,w:10,h:0.25,fontSize:10,color:'667085'});
-  pptx.writeFile({fileName:`LFR_Relatorio_Semanal_${localISO(start)}_a_${localISO(end)}.pptx`}); showToast('PowerPoint semanal gerado.');
+function dataBetween(start,end){
+  const tasks=state.tasks.filter(task=>{
+    if(!task.dueDate)return false;
+    const date=parseISO(task.dueDate); return date>=start&&date<=end;
+  }).sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||'')||(a.title||'').localeCompare(b.title||'','pt-BR'));
+  const events=state.events.filter(event=>{
+    if(!event.eventDate)return false;
+    const date=parseISO(event.eventDate); return date>=start&&date<=end;
+  }).sort((a,b)=>(a.eventDate||'').localeCompare(b.eventDate||'')||(a.title||'').localeCompare(b.title||'','pt-BR'));
+  return {tasks,events};
+}
+function reportDate(value){
+  if(!value)return 'Sem data';
+  const date=value instanceof Date?value:parseISO(value);
+  return date.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
+}
+function reportSafe(value,fallback='Não informado'){
+  const clean=String(value||'').replace(/\r?\n/g,' ').replace(/\s+/g,' ').trim();
+  return clean||fallback;
+}
+function taskAssigneeReport(task){
+  const assignees=getTaskAssignees(task);
+  if(!assignees.length)return 'Sem responsável';
+  return assignees.map(item=>`${getPerson(item.personId).name} (${item.done?'concluiu':'pendente'})`).join('; ');
+}
+function appendTaskList(lines,title,tasks){
+  lines.push('',title, '-'.repeat(title.length));
+  if(!tasks.length){ lines.push('Nenhuma tarefa registrada nesta seção.'); return; }
+  tasks.forEach((task,index)=>{
+    lines.push(`${index+1}. ${reportDate(task.dueDate)} | ${statusLabels[task.status]||task.status} | ${reportSafe(task.title)}`);
+    lines.push(`   Responsáveis: ${taskAssigneeReport(task)}`);
+    lines.push(`   Prioridade: ${reportSafe(task.priority,'Média')} | Categoria: ${reportSafe(task.category)}`);
+    if(task.description)lines.push(`   Descrição: ${reportSafe(task.description)}`);
+  });
+}
+function generateWeeklyTextReport(){
+  const {start,end,presentationDate}=reportPresentationRange(new Date());
+  const {tasks,events}=dataBetween(start,end);
+  const nextWeekStart=new Date(presentationDate); const nextWeekEnd=addDays(nextWeekStart,6);
+  const nextWeekTasks=dataBetween(nextWeekStart,nextWeekEnd).tasks.filter(task=>task.status!=='concluido');
+  const completed=tasks.filter(task=>task.status==='concluido');
+  const inProgress=tasks.filter(task=>task.status==='andamento');
+  const pending=tasks.filter(task=>task.status==='planejado'||task.status==='afazer');
+  const overdue=tasks.filter(isOverdue);
+  const eventCounts=events.reduce((acc,event)=>{
+    const label=eventTypeLabels[event.eventType]||'Outro'; acc[label]=(acc[label]||0)+1; return acc;
+  },{});
+  const lines=[];
+  lines.push('LFR 4.0 — RELATÓRIO SEMANAL DO LABORATÓRIO');
+  lines.push('='.repeat(52));
+  lines.push(`Apresentação: segunda-feira, ${reportDate(presentationDate)}`);
+  lines.push(`Período relatado: ${reportDate(start)} a ${reportDate(end)} (segunda a domingo)`);
+  lines.push(`Gerado em: ${new Date().toLocaleString('pt-BR')}`);
+  lines.push('Fonte: Kanban LFR Planejamento Online / Supabase');
+
+  lines.push('', '1. RESUMO EXECUTIVO', '-------------------');
+  lines.push(`Tarefas registradas no período: ${tasks.length}`);
+  lines.push(`Tarefas concluídas: ${completed.length}`);
+  lines.push(`Tarefas em andamento: ${inProgress.length}`);
+  lines.push(`Tarefas planejadas ou a fazer: ${pending.length}`);
+  lines.push(`Tarefas atrasadas e não concluídas: ${overdue.length}`);
+  lines.push(`Ocorrências registradas: ${events.length}`);
+  if(Object.keys(eventCounts).length){
+    lines.push(`Tipos de ocorrência: ${Object.entries(eventCounts).map(([name,count])=>`${name}: ${count}`).join(' | ')}`);
+  }else{
+    lines.push('Tipos de ocorrência: nenhuma ocorrência registrada.');
+  }
+
+  lines.push('', '2. OCORRÊNCIAS DA SEMANA', '------------------------');
+  if(!events.length){
+    lines.push('Nenhuma ocorrência registrada no período.');
+  }else{
+    events.forEach((event,index)=>{
+      lines.push(`${index+1}. ${reportDate(event.eventDate)} | ${eventTypeLabels[event.eventType]||'Outro'} | ${reportSafe(event.title)}`);
+      lines.push(`   Descrição: ${reportSafe(event.description)}`);
+      lines.push(`   Participantes / visitantes: ${reportSafe(event.participants)}`);
+      lines.push(`   Impacto / providência: ${reportSafe(event.impact)}`);
+    });
+  }
+
+  appendTaskList(lines,'3. TAREFAS CONCLUÍDAS',completed);
+  appendTaskList(lines,'4. TAREFAS EM ANDAMENTO',inProgress);
+  appendTaskList(lines,'5. TAREFAS PLANEJADAS, PENDENTES OU A FAZER',pending);
+
+  lines.push('', '6. RESUMO POR RESPONSÁVEL', '-------------------------');
+  const peopleSummary=state.people.map(person=>{
+    const assigned=tasks.filter(task=>taskHasPerson(task,person.id));
+    const individualDone=assigned.filter(task=>getTaskAssignees(task).some(item=>item.personId===person.id&&item.done)).length;
+    return {name:person.name,total:assigned.length,done:individualDone,pending:assigned.length-individualDone};
+  }).filter(item=>item.total>0).sort((a,b)=>b.total-a.total||a.name.localeCompare(b.name,'pt-BR'));
+  if(!peopleSummary.length){
+    lines.push('Nenhum responsável com tarefa registrada no período.');
+  }else{
+    peopleSummary.forEach((item,index)=>lines.push(`${index+1}. ${item.name}: ${item.total} atribuição(ões), ${item.done} concluída(s), ${item.pending} pendente(s).`));
+  }
+
+  appendTaskList(lines,`7. PRÓXIMOS PASSOS — ${reportDate(nextWeekStart)} A ${reportDate(nextWeekEnd)}`,nextWeekTasks);
+
+  lines.push('', '8. OBSERVAÇÕES PARA A APRESENTAÇÃO', '----------------------------------');
+  lines.push('• Confirmar se todas as ocorrências relevantes foram cadastradas.');
+  lines.push('• Destacar impactos, providências tomadas e pendências que precisam de apoio.');
+  lines.push('• Revisar este texto antes de copiar os pontos principais para os slides da reunião.');
+  lines.push('', 'desenvolvido por Guilherme Sollo');
+
+  const content='\ufeff'+lines.join('\r\n');
+  const blob=new Blob([content],{type:'text/plain;charset=utf-8'});
+  const url=URL.createObjectURL(blob); const anchor=document.createElement('a');
+  anchor.href=url; anchor.download=`LFR_Relatorio_Semanal_${localISO(start)}_a_${localISO(end)}.txt`;
+  document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+  showToast(`Relatório TXT gerado: ${reportDate(start)} a ${reportDate(end)}.`);
 }
 
 function bindEvents(){
@@ -534,7 +638,7 @@ function bindEvents(){
   $('closeTeamModalBtn').addEventListener('click',closeTeamModal);$('doneTeamBtn').addEventListener('click',closeTeamModal);$('addPersonBtn').addEventListener('click',addPerson);$('newPersonName').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();addPerson();}});
   $('searchInput').addEventListener('input',()=>{renderBoard();renderMetrics();});$('priorityFilter').addEventListener('change',()=>{renderBoard();renderMetrics();});$('categoryFilter').addEventListener('change',()=>{renderBoard();renderMetrics();});$('clearFiltersBtn').addEventListener('click',resetFilters);
   $('exportBtn').addEventListener('click',exportData);$('importBtn').addEventListener('click',()=>$('importFile').click());$('importFile').addEventListener('change',event=>importBackup(event.target.files?.[0]));
-  $('exportSheetBtn').addEventListener('click',exportSpreadsheet);$('importSheetBtn').addEventListener('click',()=>$('importSheetFile').click());$('importSheetFile').addEventListener('change',event=>importSpreadsheet(event.target.files?.[0]));$('weeklyPptBtn').addEventListener('click',generateWeeklyPowerPoint);
+  $('exportSheetBtn').addEventListener('click',exportSpreadsheet);$('importSheetBtn').addEventListener('click',()=>$('importSheetFile').click());$('importSheetFile').addEventListener('change',event=>importSpreadsheet(event.target.files?.[0]));$('weeklyTxtBtn').addEventListener('click',generateWeeklyTextReport);
   $('newEventBtn').addEventListener('click',()=>openEventModal());$('closeEventModalBtn').addEventListener('click',closeEventModal);$('cancelEventBtn').addEventListener('click',closeEventModal);$('eventForm').addEventListener('submit',saveEvent);$('deleteEventBtn').addEventListener('click',deleteEvent);
   $('mobileSidebarBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));
   $('taskModalBackdrop').addEventListener('click',event=>{if(event.target===$('taskModalBackdrop'))closeTaskModal();});$('teamModalBackdrop').addEventListener('click',event=>{if(event.target===$('teamModalBackdrop'))closeTeamModal();});$('eventModalBackdrop').addEventListener('click',event=>{if(event.target===$('eventModalBackdrop'))closeEventModal();});

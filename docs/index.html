@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0b2545" />
-  <meta name="description" content="Kanban LFR com planilhas, ocorrências e relatório semanal em PowerPoint." />
-  <title>LFR Planejamento Online — Kanban, Planilhas e Relatório Semanal</title>
+  <meta name="description" content="Kanban LFR com planilhas, ocorrências e relatório semanal em TXT." />
+  <title>LFR Planejamento Online — Kanban, Planilhas e Relatório TXT</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body class="auth-mode">
@@ -37,7 +37,7 @@
           <code>docs/config.js</code>
           e informe a URL e a chave publicável do seu projeto Supabase.
         </div>
-        <div class="sync-note">V4 • GitHub Pages + Supabase • planilha + PowerPoint semanal</div>
+        <div class="sync-note">V5 • GitHub Pages + Supabase • planilha + relatório TXT semanal</div>
       </div>
     </div>
   </section>
@@ -110,7 +110,7 @@
           <button id="exportBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇩ Exportar backup JSON</button>
           <button id="importBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇧ Importar backup JSON</button>
           <input id="importFile" class="file-input" type="file" accept="application/json,.json" />
-          <button id="weeklyPptBtn" class="sidebar-btn strong" type="button" style="margin-top:8px">▣ PowerPoint semanal</button>
+          <button id="weeklyTxtBtn" class="sidebar-btn strong" type="button" style="margin-top:8px" title="Gera o texto para a apresentação de segunda-feira sobre a semana anterior">▤ Relatório TXT para segunda-feira</button>
           <button id="clearFiltersBtn" class="sidebar-btn" type="button" style="margin-top:8px">Limpar filtros</button>
         </section>
 
@@ -197,7 +197,6 @@
 
   <script src="./config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
