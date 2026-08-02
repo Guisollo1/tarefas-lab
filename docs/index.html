@@ -131,6 +131,7 @@
           <button id="toolbarNewTaskBtn" class="btn primary" type="button">＋ Criar tarefa</button>
         </div>
 
+        <div id="currentDateBanner" class="current-date-banner"></div>
         <div id="monthStrip" class="month-strip"></div>
         <section id="board" class="board" aria-label="Quadro Kanban">
           <article class="column" data-status="planejado"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#778395"></i>Planejado</div><div id="count-planejado" class="count">0</div></header><div id="col-planejado" class="column-body"></div></article>
@@ -138,7 +139,7 @@
           <article class="column" data-status="andamento"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#e09f1f"></i>Em andamento</div><div id="count-andamento" class="count">0</div></header><div id="col-andamento" class="column-body"></div></article>
           <article class="column" data-status="concluido"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#21875a"></i>Concluído</div><div id="count-concluido" class="count">0</div></header><div id="col-concluido" class="column-body"></div></article>
         </section>
-        <footer class="app-footer">LFR Planejamento Online V4 • planilha + relatório semanal • desenvolvido por Guilherme Sollo</footer>
+        <footer class="app-footer">LFR Planejamento Online V7 • tarefas por dia, semana ou mês • desenvolvido por Guilherme Sollo</footer>
       </main>
     </div>
   </div>
@@ -151,9 +152,12 @@
           <div class="field full"><label for="taskTitle">Título da tarefa *</label><input id="taskTitle" class="input" maxlength="100" required placeholder="Ex.: Revisar relatório mensal" /></div>
           <div class="field full"><label for="taskDescription">Descrição</label><textarea id="taskDescription" class="textarea" maxlength="1000" placeholder="Detalhes, instruções ou observações"></textarea></div>
           <div class="field full"><label>Responsáveis pela tarefa *</label><div id="taskAssigneePicker" class="assignee-picker"></div><div class="assignee-help">Marque uma ou várias pessoas. Cada responsável poderá concluir individualmente sua parte.</div></div>
-          <div class="field"><label for="taskDueDate">Data para fazer *</label><input id="taskDueDate" class="input" type="date" required /></div>
+          <div class="field"><label for="taskScheduleType">Período da tarefa *</label><select id="taskScheduleType" class="select" required><option value="day">Um dia</option><option value="week">Uma semana</option><option value="month">Um mês</option></select></div>
+          <div id="taskDateField" class="field"><label id="taskDateLabel" for="taskDueDate">Data da tarefa *</label><input id="taskDueDate" class="input" type="date" /></div>
+          <div id="taskMonthField" class="field hidden"><label for="taskMonth">Mês da tarefa *</label><input id="taskMonth" class="input" type="month" /></div>
           <div class="field"><label for="taskPriority">Prioridade</label><select id="taskPriority" class="select"><option value="alta">Alta</option><option value="media" selected>Média</option><option value="baixa">Baixa</option></select></div>
           <div class="field"><label for="taskStatus">Etapa</label><select id="taskStatus" class="select"><option value="planejado">Planejado</option><option value="afazer" selected>A fazer</option><option value="andamento">Em andamento</option><option value="concluido">Concluído</option></select></div>
+          <div class="field full"><label class="repeat-toggle" for="taskRepeatUntilDone"><input id="taskRepeatUntilDone" type="checkbox" /><span><strong>Repetir / transportar até ser concluída</strong><small>A mesma tarefa continuará aparecendo no período atual, sem criar cópias.</small></span></label><div id="taskSchedulePreview" class="schedule-preview"></div></div>
           <div class="field full"><label for="taskCategory">Categoria</label><input id="taskCategory" class="input" maxlength="60" placeholder="Ex.: Laboratório, Manutenção, Relatório" /></div>
         </div></div>
         <footer class="modal-actions"><button id="deleteTaskBtn" class="btn danger hidden" type="button">Excluir tarefa</button><div class="modal-actions-right"><button id="cancelTaskBtn" class="btn" type="button">Cancelar</button><button class="btn primary" type="submit">Salvar tarefa</button></div></footer>
@@ -190,6 +194,20 @@
         </div></div>
         <footer class="modal-actions"><button id="deleteEventBtn" class="btn danger hidden" type="button">Excluir ocorrência</button><div class="modal-actions-right"><button id="cancelEventBtn" class="btn" type="button">Cancelar</button><button class="btn primary" type="submit">Salvar ocorrência</button></div></footer>
       </form>
+    </section>
+  </div>
+
+
+  <div id="pastGuardBackdrop" class="modal-backdrop hidden">
+    <section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="pastGuardTitle">
+      <header class="modal-head"><h2 id="pastGuardTitle">Período histórico protegido</h2><button id="closePastGuardBtn" class="modal-close" type="button">×</button></header>
+      <div class="modal-body">
+        <div class="history-lock-icon">🔒</div>
+        <p id="pastGuardMessage" class="history-lock-message"></p>
+        <div class="field"><label id="pastGuardLabel" for="pastGuardInput">Digite a palavra de confirmação</label><input id="pastGuardInput" class="input guard-word" autocomplete="off" spellcheck="false" /></div>
+        <div id="pastGuardError" class="guard-error"></div>
+      </div>
+      <footer class="modal-actions"><span class="history-lock-note">A proteção evita alterações acidentais em dias encerrados.</span><div class="modal-actions-right"><button id="cancelPastGuardBtn" class="btn" type="button">Cancelar</button><button id="confirmPastGuardBtn" class="btn primary" type="button">Confirmar</button></div></footer>
     </section>
   </div>
 
