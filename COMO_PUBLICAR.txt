@@ -1,0 +1,8 @@
+1. Execute supabase/schema.sql no SQL Editor.
+2. Crie usuários em Authentication > Users e execute supabase/add_user.sql para cada um.
+3. Copie Project URL e Publishable key para docs/config.js.
+4. Envie esta pasta inteira ao GitHub.
+5. Em Settings > Pages, escolha GitHub Actions.
+6. Abra o endereço publicado e faça login.
+
+Leia README.md para o tutorial detalhado.

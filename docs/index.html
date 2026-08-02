@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b2545" />
+  <meta name="description" content="Kanban LFR semanal e mensal com Supabase e sincronização online." />
+  <title>LFR Planejamento Online — Kanban Semanal e Mensal</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="auth-mode">
+  <section id="authView" class="auth-view">
+    <div class="auth-card">
+      <div class="auth-banner">
+        <div class="auth-logo">LFR</div>
+        <h1>Planejamento Online</h1>
+        <p>Kanban semanal e mensal sincronizado pelo Supabase</p>
+      </div>
+      <div class="auth-body">
+        <div id="authMessage" class="auth-message">Entre com o usuário cadastrado no Supabase.</div>
+        <form id="loginForm">
+          <div class="field">
+            <label for="loginEmail">E-mail</label>
+            <input id="loginEmail" class="input" type="email" autocomplete="email" required placeholder="nome@empresa.com" />
+          </div>
+          <div class="field">
+            <label for="loginPassword">Senha</label>
+            <input id="loginPassword" class="input" type="password" autocomplete="current-password" minlength="6" required placeholder="Sua senha" />
+          </div>
+          <div id="loginButtons" class="auth-actions">
+            <button class="btn primary" type="submit">Entrar no Kanban</button>
+          </div>
+        </form>
+        <button id="signupBtn" class="btn ghost hidden" style="width:100%;margin-top:9px" type="button">Criar uma conta</button>
+        <div id="configurationHelp" class="config-box hidden">
+          A conexão ainda não foi configurada. Edite o arquivo:
+          <code>docs/config.js</code>
+          e informe a URL e a chave publicável do seu projeto Supabase.
+        </div>
+        <div class="sync-note">V3 • GitHub Pages + Supabase • desenvolvido por Guilherme Sollo</div>
+      </div>
+    </div>
+  </section>
+
+  <div id="appRoot" class="hidden">
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-mark">LFR</div>
+        <div>
+          <h1>Planejamento de Tarefas</h1>
+          <p>Kanban online • múltiplos responsáveis • sincronização em tempo real</p>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <div class="period-switch" aria-label="Período">
+          <button id="weekModeBtn" class="active" type="button">Semana</button>
+          <button id="monthModeBtn" type="button">Mês</button>
+        </div>
+        <div class="date-nav">
+          <button id="prevPeriodBtn" class="head-btn" type="button" title="Período anterior">‹</button>
+          <button id="todayBtn" class="head-btn" type="button">Hoje</button>
+          <div id="periodTitle" class="date-title"></div>
+          <button id="nextPeriodBtn" class="head-btn" type="button" title="Próximo período">›</button>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="mobileSidebarBtn" class="icon-btn mobile-sidebar-btn" type="button" title="Filtros">☰</button>
+        <div id="connectionBadge" class="connection-badge"><i></i><span>Conectando</span></div>
+        <button id="themeBtn" class="icon-btn" type="button" title="Alternar tema">◐</button>
+        <button id="teamBtn" class="head-btn" type="button">Responsáveis</button>
+        <button id="newTaskBtn" class="head-btn primary" type="button">＋ Nova tarefa</button>
+        <div class="user-box">
+          <span id="userEmail" class="user-email"></span>
+          <button id="logoutBtn" class="head-btn" type="button">Sair</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <aside id="sidebar" class="sidebar">
+        <section class="sidebar-section">
+          <div class="section-title">Resumo do período</div>
+          <div class="summary-grid">
+            <div class="summary-card"><strong id="metricTotal">0</strong><span>Tarefas</span></div>
+            <div class="summary-card"><strong id="metricDone">0</strong><span>Concluídas</span></div>
+            <div class="summary-card"><strong id="metricLate">0</strong><span>Atrasadas</span></div>
+            <div class="summary-card"><strong id="metricProgress">0</strong><span>Em andamento</span></div>
+            <div class="summary-card full">
+              <div style="width:100%">
+                <div style="display:flex;justify-content:space-between;gap:8px"><span>Progresso geral</span><strong id="metricPercent" style="font-size:13px;margin:0">0%</strong></div>
+                <div class="progress"><i id="metricBar" style="width:0%"></i></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title">Responsáveis <span id="peopleCount">0</span></div>
+          <div id="personFilters" class="person-list"></div>
+          <button id="managePeopleBtn" class="sidebar-btn" type="button">＋ Gerenciar responsáveis</button>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title">Dados</div>
+          <button id="exportBtn" class="sidebar-btn" type="button">⇩ Exportar backup JSON</button>
+          <button id="importBtn" class="sidebar-btn" type="button" style="margin-top:8px">⇧ Importar backup JSON</button>
+          <input id="importFile" class="file-input" type="file" accept="application/json,.json" />
+          <button id="clearFiltersBtn" class="sidebar-btn" type="button" style="margin-top:8px">Limpar filtros</button>
+        </section>
+      </aside>
+
+      <main class="main">
+        <div class="toolbar">
+          <div class="search-wrap"><span class="search-icon">⌕</span><input id="searchInput" class="input" type="search" placeholder="Pesquisar tarefa, categoria ou responsável..." /></div>
+          <select id="priorityFilter" class="select" aria-label="Filtrar prioridade">
+            <option value="all">Todas as prioridades</option><option value="alta">Prioridade alta</option><option value="media">Prioridade média</option><option value="baixa">Prioridade baixa</option>
+          </select>
+          <select id="categoryFilter" class="select" aria-label="Filtrar categoria"><option value="all">Todas as categorias</option></select>
+          <button id="toolbarNewTaskBtn" class="btn primary" type="button">＋ Criar tarefa</button>
+        </div>
+
+        <div id="monthStrip" class="month-strip"></div>
+        <section id="board" class="board" aria-label="Quadro Kanban">
+          <article class="column" data-status="planejado"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#778395"></i>Planejado</div><div id="count-planejado" class="count">0</div></header><div id="col-planejado" class="column-body"></div></article>
+          <article class="column" data-status="afazer"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#3478c8"></i>A fazer</div><div id="count-afazer" class="count">0</div></header><div id="col-afazer" class="column-body"></div></article>
+          <article class="column" data-status="andamento"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#e09f1f"></i>Em andamento</div><div id="count-andamento" class="count">0</div></header><div id="col-andamento" class="column-body"></div></article>
+          <article class="column" data-status="concluido"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#21875a"></i>Concluído</div><div id="count-concluido" class="count">0</div></header><div id="col-concluido" class="column-body"></div></article>
+        </section>
+        <footer class="app-footer">LFR Planejamento Online V3 • dados protegidos no Supabase • desenvolvido por Guilherme Sollo</footer>
+      </main>
+    </div>
+  </div>
+
+  <div id="taskModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
+      <header class="modal-head"><h2 id="taskModalTitle">Nova tarefa</h2><button id="closeTaskModalBtn" class="modal-close" type="button">×</button></header>
+      <form id="taskForm">
+        <div class="modal-body"><div class="form-grid">
+          <div class="field full"><label for="taskTitle">Título da tarefa *</label><input id="taskTitle" class="input" maxlength="100" required placeholder="Ex.: Revisar relatório mensal" /></div>
+          <div class="field full"><label for="taskDescription">Descrição</label><textarea id="taskDescription" class="textarea" maxlength="1000" placeholder="Detalhes, instruções ou observações"></textarea></div>
+          <div class="field full"><label>Responsáveis pela tarefa *</label><div id="taskAssigneePicker" class="assignee-picker"></div><div class="assignee-help">Marque uma ou várias pessoas. Cada responsável poderá concluir individualmente sua parte.</div></div>
+          <div class="field"><label for="taskDueDate">Data para fazer *</label><input id="taskDueDate" class="input" type="date" required /></div>
+          <div class="field"><label for="taskPriority">Prioridade</label><select id="taskPriority" class="select"><option value="alta">Alta</option><option value="media" selected>Média</option><option value="baixa">Baixa</option></select></div>
+          <div class="field"><label for="taskStatus">Etapa</label><select id="taskStatus" class="select"><option value="planejado">Planejado</option><option value="afazer" selected>A fazer</option><option value="andamento">Em andamento</option><option value="concluido">Concluído</option></select></div>
+          <div class="field full"><label for="taskCategory">Categoria</label><input id="taskCategory" class="input" maxlength="60" placeholder="Ex.: Laboratório, Manutenção, Relatório" /></div>
+        </div></div>
+        <footer class="modal-actions"><button id="deleteTaskBtn" class="btn danger hidden" type="button">Excluir tarefa</button><div class="modal-actions-right"><button id="cancelTaskBtn" class="btn" type="button">Cancelar</button><button class="btn primary" type="submit">Salvar tarefa</button></div></footer>
+      </form>
+    </section>
+  </div>
+
+  <div id="teamModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="teamModalTitle">
+      <header class="modal-head"><h2 id="teamModalTitle">Responsáveis</h2><button id="closeTeamModalBtn" class="modal-close" type="button">×</button></header>
+      <div class="modal-body">
+        <div class="form-grid"><div class="field full"><label for="newPersonName">Adicionar responsável</label><div style="display:grid;grid-template-columns:1fr 48px auto;gap:8px"><input id="newPersonName" class="input" maxlength="45" placeholder="Nome do responsável" /><input id="newPersonColor" class="color-picker" type="color" value="#0b5cab" title="Cor" /><button id="addPersonBtn" class="btn primary" type="button">Adicionar</button></div></div></div>
+        <div id="teamEditorList" class="team-editor-list"></div>
+      </div>
+      <footer class="modal-actions"><span style="font-size:12px;color:var(--muted)">Retire a pessoa das tarefas antes de removê-la.</span><button id="doneTeamBtn" class="btn primary" type="button">Concluir</button></footer>
+    </section>
+  </div>
+
+  <div id="loadingCover" class="loading-cover hidden"><div id="loadingText" class="loading-card">Sincronizando dados...</div></div>
+  <div id="toast" class="toast"></div>
+
+  <script src="./config.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
