@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0b2545" />
   <meta name="description" content="Kanban LFR com recorrência mensal, calendário, feriados do Rio de Janeiro, planilhas e relatórios." />
-  <title>LFR Planejamento Online — Recorrência Mensal e Calendário RJ</title>
+  <title>LFR Planejamento Online — Tarefa fixa mensal</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body class="auth-mode">
@@ -37,7 +37,7 @@
           <code>docs/config.js</code>
           e informe a URL e a chave publicável do seu projeto Supabase.
         </div>
-        <div class="sync-note">V10 • recorrência mensal por dias escolhidos • calendário e feriados RJ</div>
+        <div class="sync-note">V11 • botão Tarefa fixa • calendário e feriados RJ</div>
       </div>
     </div>
   </section>
@@ -75,6 +75,7 @@
         <div id="connectionBadge" class="connection-badge"><i></i><span>Conectando</span></div>
         <button id="themeBtn" class="icon-btn" type="button" title="Alternar tema">◐</button>
         <button id="teamBtn" class="head-btn" type="button"><span class="btn-icon animated-emoji">👥</span> Responsáveis</button>
+        <button id="fixedTaskBtn" class="head-btn fixed-task-btn" type="button"><span class="btn-icon animated-emoji">📌</span> Tarefa fixa</button>
         <button id="newTaskBtn" class="head-btn primary" type="button"><span class="btn-icon animated-emoji">✨</span> Nova tarefa</button>
         <div class="user-box">
           <span id="userEmail" class="user-email"></span>
@@ -141,6 +142,7 @@
               <option value="all">Todas as prioridades</option><option value="alta">Prioridade alta</option><option value="media">Prioridade média</option><option value="baixa">Prioridade baixa</option>
             </select>
             <select id="categoryFilter" class="select" aria-label="Filtrar categoria"><option value="all">Todas as categorias</option></select>
+            <button id="toolbarFixedTaskBtn" class="btn fixed-task-btn" type="button"><span class="btn-icon animated-emoji">📌</span> Tarefa fixa</button>
             <button id="toolbarNewTaskBtn" class="btn primary" type="button"><span class="btn-icon animated-emoji">🚀</span> Criar tarefa</button>
           </div>
 
@@ -172,7 +174,7 @@
           <div id="holidaysList" class="holidays-list"></div>
         </section>
 
-        <footer class="app-footer">LFR Planejamento Online V10 • recorrência mensal e calendário RJ • desenvolvido por Guilherme Sollo</footer>
+        <footer class="app-footer">LFR Planejamento Online V11 • Tarefa fixa mensal • calendário RJ • desenvolvido por Guilherme Sollo</footer>
       </main>
     </div>
   </div>
@@ -185,11 +187,12 @@
           <div class="field full"><label for="taskTitle">Título da tarefa *</label><input id="taskTitle" class="input" maxlength="100" required placeholder="Ex.: Revisar relatório mensal" /></div>
           <div class="field full"><label for="taskDescription">Descrição</label><textarea id="taskDescription" class="textarea" maxlength="1000" placeholder="Detalhes, instruções ou observações"></textarea></div>
           <div class="field full"><label>Responsáveis pela tarefa *</label><div id="taskAssigneePicker" class="assignee-picker"></div><div class="assignee-help">Marque uma ou várias pessoas. Cada responsável poderá concluir individualmente sua parte.</div></div>
-          <div class="field"><label for="taskScheduleType">Período da tarefa *</label><select id="taskScheduleType" class="select" required><option value="day">Um dia</option><option value="week">Uma semana</option><option value="month">Um mês</option><option value="monthly_recurring">Dias fixos todo mês</option></select></div>
+          <div id="taskScheduleTypeField" class="field"><label for="taskScheduleType">Período da tarefa *</label><select id="taskScheduleType" class="select" required><option value="day">Um dia</option><option value="week">Uma semana</option><option value="month">Um mês</option><option value="monthly_recurring" hidden>Tarefa fixa mensal</option></select></div>
           <div id="taskDateField" class="field"><label id="taskDateLabel" for="taskDueDate">Data da tarefa *</label><input id="taskDueDate" class="input" type="date" /></div>
           <div id="taskMonthField" class="field hidden"><label for="taskMonth">Mês da tarefa *</label><input id="taskMonth" class="input" type="month" /></div>
           <div id="monthlyRecurrenceFields" class="field full hidden">
-            <label>Dias em que a tarefa se repetirá todo mês *</label>
+            <div class="fixed-task-intro"><strong>📌 Tarefa fixa mensal</strong><span>Escolha qualquer dia — ou vários dias — e a tarefa entrará automaticamente como “A fazer” no Kanban de cada mês.</span></div>
+            <label>Dias em que a tarefa aparecerá todo mês *</label>
             <div id="monthlyDaysPicker" class="monthly-days-picker"></div>
             <div class="recurrence-date-grid">
               <div class="field"><label for="recurrenceStartsOn">Começar em *</label><input id="recurrenceStartsOn" class="input" type="date" /></div>
@@ -199,7 +202,7 @@
           </div>
           <div id="recurrenceInstanceNotice" class="field full hidden"><div class="schedule-preview">🔁 Esta é uma ocorrência de uma regra mensal. Editar este cartão altera somente esta ocorrência.</div></div>
           <div class="field"><label for="taskPriority">Prioridade</label><select id="taskPriority" class="select"><option value="alta">Alta</option><option value="media" selected>Média</option><option value="baixa">Baixa</option></select></div>
-          <div class="field"><label for="taskStatus">Etapa</label><select id="taskStatus" class="select"><option value="planejado">Planejado</option><option value="afazer" selected>A fazer</option><option value="andamento">Em andamento</option><option value="concluido">Concluído</option></select></div>
+          <div id="taskStatusField" class="field"><label for="taskStatus">Etapa</label><select id="taskStatus" class="select"><option value="planejado">Planejado</option><option value="afazer" selected>A fazer</option><option value="andamento">Em andamento</option><option value="concluido">Concluído</option></select></div>
           <div class="field full"><label class="repeat-toggle" for="taskRepeatUntilDone"><input id="taskRepeatUntilDone" type="checkbox" /><span><strong>Repetir / transportar até ser concluída</strong><small>A mesma tarefa continuará aparecendo no período atual, sem criar cópias.</small></span></label><div id="taskSchedulePreview" class="schedule-preview"></div></div>
           <div class="field full"><label for="taskCategory">Categoria</label><input id="taskCategory" class="input" maxlength="60" placeholder="Ex.: Laboratório, Manutenção, Relatório" /></div>
         </div></div>

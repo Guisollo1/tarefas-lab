@@ -6,7 +6,7 @@ const CACHE_KEY = 'lfr_planejamento_online_cache_v7';
 const statusOrder = ['planejado', 'afazer', 'andamento', 'concluido'];
 const statusLabels = { planejado:'Planejado', afazer:'A fazer', andamento:'Em andamento', concluido:'Concluído' };
 const priorityColors = { alta:'#d94b45', media:'#e09f1f', baixa:'#2f8e67' };
-const scheduleTypeLabels = { day:'Dia', week:'Semana', month:'Mês', monthly_recurring:'Dias fixos todo mês' };
+const scheduleTypeLabels = { day:'Dia', week:'Semana', month:'Mês', monthly_recurring:'Tarefa fixa mensal' };
 const eventTypeLabels = { visita:'Visita', visita_tecnica:'Visita técnica', apresentacao:'Apresentação', manutencao:'Manutenção', queda_luz:'Queda de luz', treinamento:'Treinamento', reuniao:'Reunião', auditoria:'Auditoria', seguranca:'Segurança', outro:'Outro' };
 const defaultColors = ['#0b5cab','#7a4cb2','#2f8e67','#c56c24','#d94b45','#0b7a75','#526172','#8c6d1f'];
 
@@ -25,6 +25,7 @@ let cursorDate = new Date();
 let selectedPerson = 'all';
 let selectedDay = localISO(new Date());
 let editingTaskId = null;
+let fixedTaskCreationMode = false;
 let editingTaskUnlocked = false;
 let pastGuardResolver = null;
 let pastGuardExpected = '';
@@ -455,7 +456,7 @@ function openRecurringModal(){renderRecurringManager();$('recurringModalBackdrop
 function closeRecurringModal(){$('recurringModalBackdrop').classList.add('hidden');render();}
 function renderRecurringManager(){
   const list=$('recurringManagerList'); list.innerHTML=''; const templates=state.recurringTemplates||[];
-  if(!templates.length){list.innerHTML='<div class="empty">Crie uma nova tarefa e escolha “Dias fixos todo mês”.</div>';return;}
+  if(!templates.length){list.innerHTML='<div class="empty">Clique em “Tarefa fixa” para criar a primeira regra mensal.</div>';return;}
   templates.forEach(template=>{const row=document.createElement('div');row.className='recurring-manager-row';row.innerHTML=`<div><div class="recurring-template-title">${template.active?'🔁':'⏸️'} ${esc(template.title)}</div><div class="recurring-template-meta">Dias ${template.daysOfMonth.join(', ')} de cada mês • início ${formatShortDate(template.startsOn)}${template.endsOn?` • fim ${formatShortDate(template.endsOn)}`:' • sem data final'}<br>${esc(recurringTemplateAssigneeNames(template))}</div></div><div class="recurring-manager-actions"><button class="btn small toggle-template" type="button">${template.active?'Desativar':'Ativar'}</button><button class="btn small danger delete-template" type="button">Excluir regra</button></div>`;row.querySelector('.toggle-template').addEventListener('click',()=>toggleRecurringTemplate(template));row.querySelector('.delete-template').addEventListener('click',()=>deleteRecurringTemplate(template));list.appendChild(row);});
 }
 async function toggleRecurringTemplate(template){try{const {error}=await supabase.from('recurring_task_templates').update({active:!template.active,updated_by:session.user.id}).eq('workspace_id',CONFIG.workspaceId).eq('id',template.id);if(error)throw error;await loadData(false);renderRecurringManager();showToast(template.active?'Recorrência desativada.':'Recorrência ativada.');}catch(error){showToast(friendlyError(error));}}
@@ -536,7 +537,14 @@ function openTaskModal(taskId=null,unlocked=false){
   $('taskPriority').value=task?.priority||'media'; $('taskStatus').value=task?.status||'afazer'; $('taskCategory').value=task?.category||'';
   $('deleteTaskBtn').classList.toggle('hidden',!task); $('taskModalBackdrop').classList.remove('hidden'); setTimeout(()=>$('taskTitle').focus(),30);
 }
-function closeTaskModal(){ $('taskModalBackdrop').classList.add('hidden'); editingTaskId=null; editingTaskUnlocked=false; $('taskScheduleType').disabled=false; $('taskForm').reset(); }
+function openFixedTaskModal(){
+  if(!state.people.length){showToast('Cadastre pelo menos um responsável.');openTeamModal();return;}
+  fixedTaskCreationMode=true; openTaskModal();
+  $('taskModalTitle').textContent='📌 Nova tarefa fixa'; $('taskScheduleType').value='monthly_recurring'; $('taskScheduleType').disabled=true;
+  $('taskScheduleTypeField').classList.add('hidden'); $('taskStatus').value='afazer'; $('taskStatus').disabled=true; $('taskStatusField').classList.add('hidden');
+  $('recurrenceStartsOn').value=defaultTaskDate(); updateTaskScheduleFields();
+}
+function closeTaskModal(){ $('taskModalBackdrop').classList.add('hidden'); editingTaskId=null; editingTaskUnlocked=false; fixedTaskCreationMode=false; $('taskScheduleType').disabled=false; $('taskStatus').disabled=false; $('taskScheduleTypeField').classList.remove('hidden'); $('taskStatusField').classList.remove('hidden'); $('taskForm').reset(); }
 
 function requestPastAuthorization(task,action='edit'){
   const expected=action==='delete'?'DELETE':'EDITAR';
@@ -567,7 +575,7 @@ async function saveTask(event){
     const title=$('taskTitle').value.trim(); const days=selectedMonthlyDays(); const startsOn=$('recurrenceStartsOn').value; const endsOn=$('recurrenceEndsOn').value||null;
     if(!title||!assigneeIds.length||!days.length||!startsOn){showToast('Preencha título, responsáveis, início e pelo menos um dia do mês.');return;} if(endsOn&&endsOn<startsOn){showToast('A data final não pode ser anterior ao início.');return;}
     setLoading(true,'Criando recorrência mensal...');
-    try{const {data,error}=await supabase.from('recurring_task_templates').insert({workspace_id:CONFIG.workspaceId,title,description:$('taskDescription').value.trim()||null,days_of_month:days,starts_on:startsOn,ends_on:endsOn,priority:$('taskPriority').value,initial_status:$('taskStatus').value==='concluido'?'afazer':$('taskStatus').value,category:$('taskCategory').value.trim()||null,carry_until_done:false,active:true,created_by:session.user.id,updated_by:session.user.id}).select('id').single();if(error)throw error;const rows=assigneeIds.map(personId=>({workspace_id:CONFIG.workspaceId,template_id:data.id,person_id:personId}));const {error:assignError}=await supabase.from('recurring_task_assignees').insert(rows);if(assignError)throw assignError;const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);closeTaskModal();await loadData(false);showToast('Recorrência mensal criada.');}catch(error){console.error(error);showToast(friendlyError(error));}finally{setLoading(false);}return;
+    try{const {data,error}=await supabase.from('recurring_task_templates').insert({workspace_id:CONFIG.workspaceId,title,description:$('taskDescription').value.trim()||null,days_of_month:days,starts_on:startsOn,ends_on:endsOn,priority:$('taskPriority').value,initial_status:'afazer',category:$('taskCategory').value.trim()||null,carry_until_done:false,active:true,created_by:session.user.id,updated_by:session.user.id}).select('id').single();if(error)throw error;const rows=assigneeIds.map(personId=>({workspace_id:CONFIG.workspaceId,template_id:data.id,person_id:personId}));const {error:assignError}=await supabase.from('recurring_task_assignees').insert(rows);if(assignError)throw assignError;const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);closeTaskModal();await loadData(false);showToast('Tarefa fixa criada. Ela entrará como “A fazer” nos dias escolhidos.');}catch(error){console.error(error);showToast(friendlyError(error));}finally{setLoading(false);}return;
   }
   if(oldTask && taskIsPastLocked(oldTask) && !editingTaskUnlocked){ const ok=await requestPastAuthorization(oldTask,'edit'); if(!ok)return; editingTaskUnlocked=true; }
   const schedule=scheduleFromForm(); const status=$('taskStatus').value;
@@ -1162,6 +1170,7 @@ function bindEvents(){
   $('kanbanViewBtn').addEventListener('click',()=>setAppView('kanban'));$('calendarViewBtn').addEventListener('click',()=>setAppView('calendar'));$('holidaysViewBtn').addEventListener('click',()=>setAppView('holidays'));
   $('weekModeBtn').addEventListener('click',()=>setMode('week'));$('monthModeBtn').addEventListener('click',()=>setMode('month'));$('prevPeriodBtn').addEventListener('click',()=>shiftPeriod(-1));$('nextPeriodBtn').addEventListener('click',()=>shiftPeriod(1));$('todayBtn').addEventListener('click',async()=>{cursorDate=new Date();if(appView==='kanban'){viewMode='week';selectedDay=localISO(new Date());$('weekModeBtn').classList.add('active');$('monthModeBtn').classList.remove('active');}const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);await loadData(false);});
   [$('newTaskBtn'),$('toolbarNewTaskBtn')].forEach(btn=>btn.addEventListener('click',()=>openTaskModal()));[$('teamBtn'),$('managePeopleBtn')].forEach(btn=>btn.addEventListener('click',openTeamModal));
+  [$('fixedTaskBtn'),$('toolbarFixedTaskBtn')].forEach(btn=>btn.addEventListener('click',openFixedTaskModal));
   $('closeTaskModalBtn').addEventListener('click',closeTaskModal);$('cancelTaskBtn').addEventListener('click',closeTaskModal);$('taskForm').addEventListener('submit',saveTask);$('deleteTaskBtn').addEventListener('click',deleteTask);
   $('taskScheduleType').addEventListener('change',updateTaskScheduleFields);$('taskDueDate').addEventListener('change',updateTaskScheduleFields);$('taskMonth').addEventListener('change',updateTaskScheduleFields);$('taskRepeatUntilDone').addEventListener('change',updateTaskScheduleFields);$('monthlyDaysPicker').addEventListener('change',updateTaskScheduleFields);$('recurrenceStartsOn').addEventListener('change',updateTaskScheduleFields);$('recurrenceEndsOn').addEventListener('change',updateTaskScheduleFields);
   $('manageRecurringBtn').addEventListener('click',openRecurringModal);$('closeRecurringModalBtn').addEventListener('click',closeRecurringModal);$('doneRecurringBtn').addEventListener('click',closeRecurringModal);
