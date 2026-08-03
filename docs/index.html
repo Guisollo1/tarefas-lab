@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0b2545" />
-  <meta name="description" content="Kanban LFR com planilhas, ocorrências e relatório semanal em HTML e TXT." />
-  <title>LFR Planejamento Online — Kanban, Planilhas e Relatórios HTML</title>
+  <meta name="description" content="Kanban LFR com recorrência mensal, calendário, feriados do Rio de Janeiro, planilhas e relatórios." />
+  <title>LFR Planejamento Online — Recorrência Mensal e Calendário RJ</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body class="auth-mode">
@@ -37,7 +37,7 @@
           <code>docs/config.js</code>
           e informe a URL e a chave publicável do seu projeto Supabase.
         </div>
-        <div class="sync-note">V8 • GitHub Pages + Supabase • planilha + relatórios HTML/TXT semanais</div>
+        <div class="sync-note">V10 • recorrência mensal por dias escolhidos • calendário e feriados RJ</div>
       </div>
     </div>
   </section>
@@ -53,7 +53,12 @@
       </div>
 
       <div class="header-center">
-        <div class="period-switch" aria-label="Período">
+        <div class="app-view-switch" aria-label="Área do sistema">
+          <button id="kanbanViewBtn" class="active" type="button">📋 Kanban</button>
+          <button id="calendarViewBtn" type="button">🗓️ Calendário</button>
+          <button id="holidaysViewBtn" type="button">🎉 Feriados RJ</button>
+        </div>
+        <div id="kanbanPeriodSwitch" class="period-switch" aria-label="Período do Kanban">
           <button id="weekModeBtn" class="active" type="button">Semana</button>
           <button id="monthModeBtn" type="button">Mês</button>
         </div>
@@ -103,6 +108,12 @@
         </section>
 
         <section class="sidebar-section">
+          <div class="section-title"><span>🔁 Tarefas mensais</span> <span id="recurringCount">0</span></div>
+          <div id="recurringTemplatesPanel" class="recurring-templates-panel"></div>
+          <button id="manageRecurringBtn" class="sidebar-btn" type="button"><span class="btn-icon">⚙️</span> Gerenciar recorrências</button>
+        </section>
+
+        <section class="sidebar-section">
           <div class="section-title"><span>📁 Planilhas, relatórios e backup</span></div>
           <button id="exportSheetBtn" class="sidebar-btn" type="button"><span class="btn-icon">📊</span> Exportar planilha XLSX</button>
           <button id="importSheetBtn" class="sidebar-btn" type="button" style="margin-top:8px"><span class="btn-icon">📥</span> Importar planilha XLSX</button>
@@ -123,24 +134,45 @@
       </aside>
 
       <main class="main">
-        <div class="toolbar">
-          <div class="search-wrap"><span class="search-icon">⌕</span><input id="searchInput" class="input" type="search" placeholder="Pesquisar tarefa, categoria ou responsável..." /></div>
-          <select id="priorityFilter" class="select" aria-label="Filtrar prioridade">
-            <option value="all">Todas as prioridades</option><option value="alta">Prioridade alta</option><option value="media">Prioridade média</option><option value="baixa">Prioridade baixa</option>
-          </select>
-          <select id="categoryFilter" class="select" aria-label="Filtrar categoria"><option value="all">Todas as categorias</option></select>
-          <button id="toolbarNewTaskBtn" class="btn primary" type="button"><span class="btn-icon animated-emoji">🚀</span> Criar tarefa</button>
-        </div>
+        <section id="kanbanView" class="app-content-view">
+          <div class="toolbar">
+            <div class="search-wrap"><span class="search-icon">⌕</span><input id="searchInput" class="input" type="search" placeholder="Pesquisar tarefa, categoria ou responsável..." /></div>
+            <select id="priorityFilter" class="select" aria-label="Filtrar prioridade">
+              <option value="all">Todas as prioridades</option><option value="alta">Prioridade alta</option><option value="media">Prioridade média</option><option value="baixa">Prioridade baixa</option>
+            </select>
+            <select id="categoryFilter" class="select" aria-label="Filtrar categoria"><option value="all">Todas as categorias</option></select>
+            <button id="toolbarNewTaskBtn" class="btn primary" type="button"><span class="btn-icon animated-emoji">🚀</span> Criar tarefa</button>
+          </div>
 
-        <div id="currentDateBanner" class="current-date-banner"></div>
-        <div id="monthStrip" class="month-strip"></div>
-        <section id="board" class="board" aria-label="Quadro Kanban">
-          <article class="column" data-status="planejado"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#778395"></i>🗂️ Planejado</div><div id="count-planejado" class="count">0</div></header><div id="col-planejado" class="column-body"></div></article>
-          <article class="column" data-status="afazer"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#3478c8"></i>📌 A fazer</div><div id="count-afazer" class="count">0</div></header><div id="col-afazer" class="column-body"></div></article>
-          <article class="column" data-status="andamento"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#e09f1f"></i>⚙️ Em andamento</div><div id="count-andamento" class="count">0</div></header><div id="col-andamento" class="column-body"></div></article>
-          <article class="column" data-status="concluido"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#21875a"></i>✅ Concluído</div><div id="count-concluido" class="count">0</div></header><div id="col-concluido" class="column-body"></div></article>
+          <div id="currentDateBanner" class="current-date-banner"></div>
+          <div id="monthStrip" class="month-strip"></div>
+          <section id="board" class="board" aria-label="Quadro Kanban">
+            <article class="column" data-status="planejado"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#778395"></i>🗂️ Planejado</div><div id="count-planejado" class="count">0</div></header><div id="col-planejado" class="column-body"></div></article>
+            <article class="column" data-status="afazer"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#3478c8"></i>📌 A fazer</div><div id="count-afazer" class="count">0</div></header><div id="col-afazer" class="column-body"></div></article>
+            <article class="column" data-status="andamento"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#e09f1f"></i>⚙️ Em andamento</div><div id="count-andamento" class="count">0</div></header><div id="col-andamento" class="column-body"></div></article>
+            <article class="column" data-status="concluido"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#21875a"></i>✅ Concluído</div><div id="count-concluido" class="count">0</div></header><div id="col-concluido" class="column-body"></div></article>
+          </section>
         </section>
-        <footer class="app-footer">LFR Planejamento Online V8 • tarefas por dia, semana ou mês • relatório HTML estilizado • desenvolvido por Guilherme Sollo</footer>
+
+        <section id="calendarView" class="app-content-view hidden">
+          <div class="calendar-topbar">
+            <div><h2>🗓️ Calendário mensal</h2><p>Tarefas, ocorrências e feriados do Rio de Janeiro reunidos por dia.</p></div>
+            <div class="calendar-legend"><span class="legend-item holiday-national">🇧🇷 Nacional</span><span class="legend-item holiday-state">🔵 Estadual RJ</span><span class="legend-item holiday-city">🏙️ Cidade do Rio</span><span class="legend-item holiday-optional">🟠 Ponto facultativo</span></div>
+          </div>
+          <div class="calendar-weekdays"><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span><span>Dom</span></div>
+          <div id="calendarGrid" class="calendar-grid"></div>
+        </section>
+
+        <section id="holidaysView" class="app-content-view hidden">
+          <div class="holidays-hero">
+            <div><h2>🎉 Feriados e pontos facultativos — Rio de Janeiro</h2><p>Calendário consolidado para planejamento do laboratório. Feriados nacionais, estaduais do RJ e municipais da cidade do Rio.</p></div>
+            <div id="holidaysYearBadge" class="holidays-year-badge"></div>
+          </div>
+          <div class="holiday-disclaimer">ℹ️ Pontos facultativos e expedientes podem variar por empresa ou por decreto anual. O sistema diferencia cada tipo no calendário.</div>
+          <div id="holidaysList" class="holidays-list"></div>
+        </section>
+
+        <footer class="app-footer">LFR Planejamento Online V10 • recorrência mensal e calendário RJ • desenvolvido por Guilherme Sollo</footer>
       </main>
     </div>
   </div>
@@ -153,9 +185,19 @@
           <div class="field full"><label for="taskTitle">Título da tarefa *</label><input id="taskTitle" class="input" maxlength="100" required placeholder="Ex.: Revisar relatório mensal" /></div>
           <div class="field full"><label for="taskDescription">Descrição</label><textarea id="taskDescription" class="textarea" maxlength="1000" placeholder="Detalhes, instruções ou observações"></textarea></div>
           <div class="field full"><label>Responsáveis pela tarefa *</label><div id="taskAssigneePicker" class="assignee-picker"></div><div class="assignee-help">Marque uma ou várias pessoas. Cada responsável poderá concluir individualmente sua parte.</div></div>
-          <div class="field"><label for="taskScheduleType">Período da tarefa *</label><select id="taskScheduleType" class="select" required><option value="day">Um dia</option><option value="week">Uma semana</option><option value="month">Um mês</option></select></div>
+          <div class="field"><label for="taskScheduleType">Período da tarefa *</label><select id="taskScheduleType" class="select" required><option value="day">Um dia</option><option value="week">Uma semana</option><option value="month">Um mês</option><option value="monthly_recurring">Dias fixos todo mês</option></select></div>
           <div id="taskDateField" class="field"><label id="taskDateLabel" for="taskDueDate">Data da tarefa *</label><input id="taskDueDate" class="input" type="date" /></div>
           <div id="taskMonthField" class="field hidden"><label for="taskMonth">Mês da tarefa *</label><input id="taskMonth" class="input" type="month" /></div>
+          <div id="monthlyRecurrenceFields" class="field full hidden">
+            <label>Dias em que a tarefa se repetirá todo mês *</label>
+            <div id="monthlyDaysPicker" class="monthly-days-picker"></div>
+            <div class="recurrence-date-grid">
+              <div class="field"><label for="recurrenceStartsOn">Começar em *</label><input id="recurrenceStartsOn" class="input" type="date" /></div>
+              <div class="field"><label for="recurrenceEndsOn">Terminar em (opcional)</label><input id="recurrenceEndsOn" class="input" type="date" /></div>
+            </div>
+            <div class="assignee-help">Exemplo: selecione 5, 12 e 25 para criar uma ocorrência independente nesses dias de cada mês. Dias inexistentes, como 31 em fevereiro, são ignorados.</div>
+          </div>
+          <div id="recurrenceInstanceNotice" class="field full hidden"><div class="schedule-preview">🔁 Esta é uma ocorrência de uma regra mensal. Editar este cartão altera somente esta ocorrência.</div></div>
           <div class="field"><label for="taskPriority">Prioridade</label><select id="taskPriority" class="select"><option value="alta">Alta</option><option value="media" selected>Média</option><option value="baixa">Baixa</option></select></div>
           <div class="field"><label for="taskStatus">Etapa</label><select id="taskStatus" class="select"><option value="planejado">Planejado</option><option value="afazer" selected>A fazer</option><option value="andamento">Em andamento</option><option value="concluido">Concluído</option></select></div>
           <div class="field full"><label class="repeat-toggle" for="taskRepeatUntilDone"><input id="taskRepeatUntilDone" type="checkbox" /><span><strong>Repetir / transportar até ser concluída</strong><small>A mesma tarefa continuará aparecendo no período atual, sem criar cópias.</small></span></label><div id="taskSchedulePreview" class="schedule-preview"></div></div>
@@ -174,6 +216,18 @@
         <div id="teamEditorList" class="team-editor-list"></div>
       </div>
       <footer class="modal-actions"><span style="font-size:12px;color:var(--muted)">Retire a pessoa das tarefas antes de removê-la.</span><button id="doneTeamBtn" class="btn primary" type="button">Concluir</button></footer>
+    </section>
+  </div>
+
+
+  <div id="recurringModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="recurringModalTitle">
+      <header class="modal-head"><h2 id="recurringModalTitle">🔁 Regras mensais</h2><button id="closeRecurringModalBtn" class="modal-close" type="button">×</button></header>
+      <div class="modal-body">
+        <div class="recurring-info-box">Cada regra gera tarefas independentes nos dias escolhidos. Concluir uma ocorrência não encerra os próximos meses.</div>
+        <div id="recurringManagerList" class="recurring-manager-list"></div>
+      </div>
+      <footer class="modal-actions"><span style="font-size:12px;color:var(--muted)">Desativar interrompe novas ocorrências; o histórico permanece.</span><button id="doneRecurringBtn" class="btn primary" type="button">Concluir</button></footer>
     </section>
   </div>
 
@@ -209,6 +263,32 @@
         <div id="pastGuardError" class="guard-error"></div>
       </div>
       <footer class="modal-actions"><span class="history-lock-note">A proteção evita alterações acidentais em dias encerrados.</span><div class="modal-actions-right"><button id="cancelPastGuardBtn" class="btn" type="button">Cancelar</button><button id="confirmPastGuardBtn" class="btn primary" type="button">Confirmar</button></div></footer>
+    </section>
+  </div>
+
+
+
+  <div id="reportPreviewBackdrop" class="modal-backdrop report-preview-backdrop hidden">
+    <section class="modal report-preview-modal" role="dialog" aria-modal="true" aria-labelledby="reportPreviewTitle">
+      <header class="modal-head report-preview-head">
+        <div>
+          <h2 id="reportPreviewTitle">Relatório semanal do laboratório</h2>
+          <div id="reportPreviewPeriod" class="report-preview-period"></div>
+        </div>
+        <button id="closeReportPreviewBtn" class="modal-close" type="button" title="Fechar">×</button>
+      </header>
+      <div class="report-preview-toolbar">
+        <button id="openReportWindowBtn" class="btn" type="button"><span class="btn-icon">↗️</span> Abrir em nova janela</button>
+        <button id="downloadReportHtmlBtn" class="btn primary" type="button"><span class="btn-icon">⬇️</span> Baixar HTML</button>
+        <button id="printReportBtn" class="btn" type="button"><span class="btn-icon">🖨️</span> Imprimir / PDF</button>
+      </div>
+      <div class="report-preview-body">
+        <iframe id="reportPreviewFrame" class="report-preview-frame" title="Pré-visualização do relatório semanal"></iframe>
+      </div>
+      <footer class="modal-actions report-preview-footer">
+        <span>O relatório é gerado com os dados atuais do Kanban e das ocorrências.</span>
+        <button id="closeReportPreviewFooterBtn" class="btn" type="button">Fechar</button>
+      </footer>
     </section>
   </div>
 

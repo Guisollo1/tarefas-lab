@@ -6,7 +6,7 @@ const CACHE_KEY = 'lfr_planejamento_online_cache_v7';
 const statusOrder = ['planejado', 'afazer', 'andamento', 'concluido'];
 const statusLabels = { planejado:'Planejado', afazer:'A fazer', andamento:'Em andamento', concluido:'Concluído' };
 const priorityColors = { alta:'#d94b45', media:'#e09f1f', baixa:'#2f8e67' };
-const scheduleTypeLabels = { day:'Dia', week:'Semana', month:'Mês' };
+const scheduleTypeLabels = { day:'Dia', week:'Semana', month:'Mês', monthly_recurring:'Dias fixos todo mês' };
 const eventTypeLabels = { visita:'Visita', visita_tecnica:'Visita técnica', apresentacao:'Apresentação', manutencao:'Manutenção', queda_luz:'Queda de luz', treinamento:'Treinamento', reuniao:'Reunião', auditoria:'Auditoria', seguranca:'Segurança', outro:'Outro' };
 const defaultColors = ['#0b5cab','#7a4cb2','#2f8e67','#c56c24','#d94b45','#0b7a75','#526172','#8c6d1f'];
 
@@ -18,8 +18,9 @@ let supabase = null;
 let session = null;
 let realtimeChannel = null;
 let reloadTimer = null;
-let state = { people:[], tasks:[], events:[] };
+let state = { people:[], tasks:[], events:[], recurringTemplates:[] };
 let viewMode = 'week';
+let appView = 'kanban';
 let cursorDate = new Date();
 let selectedPerson = 'all';
 let selectedDay = localISO(new Date());
@@ -30,6 +31,9 @@ let pastGuardExpected = '';
 let pastGuardAction = '';
 let pastGuardTaskId = null;
 let editingEventId = null;
+let currentReportHtml = '';
+let currentReportFileName = '';
+let currentReportObjectUrl = '';
 let draggedTaskId = null;
 let loadingDepth = 0;
 
@@ -130,6 +134,54 @@ function statusFromText(value){ const raw=normalizeText(value).toLowerCase().nor
 function priorityFromText(value){ const raw=normalizeText(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); if(raw.startsWith('alt'))return 'alta'; if(raw.startsWith('baix'))return 'baixa'; return 'media'; }
 function eventTypeFromText(value){ const raw=normalizeText(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'_'); const map={visita:'visita',visita_tecnica:'visita_tecnica',visitatecnica:'visita_tecnica',apresentacao:'apresentacao',manutencao:'manutencao',queda_luz:'queda_luz',quedadeluz:'queda_luz',treinamento:'treinamento',reuniao:'reuniao',auditoria:'auditoria',seguranca:'seguranca',outro:'outro'}; return map[raw]||map[raw.replace(/_/g,'')]||'outro'; }
 function excelDateToISO(value){ if(!value) return localISO(new Date()); if(value instanceof Date) return localISO(value); if(typeof value==='number' && window.XLSX){ const parsed=window.XLSX.SSF.parse_date_code(value); if(parsed) return localISO(new Date(parsed.y,parsed.m-1,parsed.d)); } const text=normalizeText(value); const m=text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/); if(m){ const y=Number(m[3].length===2?'20'+m[3]:m[3]); return localISO(new Date(y,Number(m[2])-1,Number(m[1]))); } if(/^\d{4}-\d{2}-\d{2}$/.test(text)) return text; const date=new Date(text); return isNaN(date)?localISO(new Date()):localISO(date); }
+function selectedMonthlyDays(){ return [...document.querySelectorAll('#monthlyDaysPicker input:checked')].map(input=>Number(input.value)).sort((a,b)=>a-b); }
+function renderMonthlyDaysPicker(selected=[]){
+  const picker=$('monthlyDaysPicker'); if(!picker)return; const set=new Set((selected||[]).map(Number)); picker.innerHTML='';
+  for(let day=1;day<=31;day++){
+    const wrap=document.createElement('div'); wrap.className='monthly-day-option'; const id=`monthly_day_${day}`;
+    wrap.innerHTML=`<input id="${id}" type="checkbox" value="${day}" ${set.has(day)?'checked':''}><label for="${id}">${day}</label>`; picker.appendChild(wrap);
+  }
+}
+function recurringTemplateAssigneeNames(template){ return (template.assigneeIds||[]).map(id=>getPerson(id).name).join(', ')||'Sem responsável'; }
+function monthRangeAroundCursor(){ const start=new Date(cursorDate.getFullYear(),cursorDate.getMonth()-1,1); const end=new Date(cursorDate.getFullYear(),cursorDate.getMonth()+2,0); return {start,end}; }
+async function ensureRecurringTasksForRange(start,end){
+  if(!supabase||!session)return 0;
+  const {data,error}=await supabase.rpc('ensure_recurring_tasks',{target_workspace:CONFIG.workspaceId,range_start:localISO(start),range_end:localISO(end)});
+  if(error){ if(!String(error.message||'').includes('ensure_recurring_tasks')) console.warn(error); return 0; }
+  return Number(data||0);
+}
+function easterDate(year){
+  const a=year%19,b=Math.floor(year/100),c=year%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),month=Math.floor((h+l-7*m+114)/31),day=((h+l-7*m+114)%31)+1;
+  return new Date(year,month-1,day);
+}
+function holidayItem(date,name,scope='national',kind='holiday',note=''){ return {date:localISO(date),name,scope,kind,note}; }
+function holidaysForYear(year){
+  const easter=easterDate(year); const carnivalTuesday=addDays(easter,-47); const carnivalMonday=addDays(easter,-48); const ashWednesday=addDays(easter,-46); const goodFriday=addDays(easter,-2); const corpus=addDays(easter,60);
+  const list=[
+    holidayItem(new Date(year,0,1),'Confraternização Universal','national'),
+    holidayItem(new Date(year,0,20),'São Sebastião — padroeiro da cidade','city'),
+    holidayItem(carnivalMonday,'Segunda-feira de Carnaval','optional','optional'),
+    holidayItem(carnivalTuesday,'Terça-feira de Carnaval','state'),
+    holidayItem(ashWednesday,'Quarta-feira de Cinzas até 14h','optional','optional'),
+    holidayItem(goodFriday,'Paixão de Cristo','national'),
+    holidayItem(new Date(year,3,21),'Tiradentes','national'),
+    holidayItem(new Date(year,3,23),'Dia de São Jorge','state'),
+    holidayItem(new Date(year,4,1),'Dia Mundial do Trabalho','national'),
+    holidayItem(corpus,'Corpus Christi','city'),
+    holidayItem(new Date(year,8,7),'Independência do Brasil','national'),
+    holidayItem(new Date(year,9,12),'Nossa Senhora Aparecida','national'),
+    holidayItem(new Date(year,9,28),'Dia do Servidor Público','optional','optional'),
+    holidayItem(new Date(year,10,2),'Finados','national'),
+    holidayItem(new Date(year,10,15),'Proclamação da República','national'),
+    holidayItem(new Date(year,10,20),'Dia Nacional de Zumbi e da Consciência Negra','national'),
+    holidayItem(new Date(year,11,25),'Natal','national')
+  ];
+  return list.sort((a,b)=>a.date.localeCompare(b.date));
+}
+function holidaysForDate(date){ return holidaysForYear(date.getFullYear()).filter(item=>item.date===localISO(date)); }
+function holidayScopeLabel(scope,kind){ if(kind==='optional')return 'Ponto facultativo'; return {national:'Feriado nacional',state:'Feriado estadual RJ',city:'Feriado municipal — Rio'}[scope]||'Data especial'; }
+function holidayScopeIcon(item){ if(item.kind==='optional')return '🟠'; return {national:'🇧🇷',state:'🔵',city:'🏙️'}[item.scope]||'🎉'; }
+function holidayClass(item){ return item.kind==='optional'?'optional':item.scope; }
 
 function setLoading(active,text='Sincronizando dados...'){
   loadingDepth = Math.max(0, loadingDepth + (active ? 1 : -1));
@@ -229,13 +281,14 @@ async function enterApplication(){
   $('appRoot').classList.remove('hidden');
   $('userEmail').textContent=session.user.email||'Usuário';
   setConnection('','Conectando');
+  const initialRange=monthRangeAroundCursor(); await ensureRecurringTasksForRange(initialRange.start,initialRange.end);
   await loadData(true);
   subscribeRealtime();
 }
 function leaveApplication(){
   if(realtimeChannel && supabase){ supabase.removeChannel(realtimeChannel); realtimeChannel=null; }
   $('appRoot').classList.add('hidden'); $('authView').classList.remove('hidden'); document.body.classList.add('auth-mode');
-  state={people:[],tasks:[],events:[]}; setAuthMessage('Entre com o usuário cadastrado no Supabase.');
+  state={people:[],tasks:[],events:[],recurringTemplates:[]}; setAuthMessage('Entre com o usuário cadastrado no Supabase.');
 }
 
 async function login(event){
@@ -259,29 +312,33 @@ async function loadData(showCover=false){
   if(!supabase || !session) return;
   if(showCover) setLoading(true,'Carregando o Kanban online...');
   try{
-    const [peopleResult,tasksResult,assigneeResult,eventsResult]=await Promise.all([
+    const [peopleResult,tasksResult,assigneeResult,eventsResult,templatesResult,templateAssigneesResult]=await Promise.all([
       supabase.from('people').select('id,name,color,active,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).eq('active',true).order('name'),
-      supabase.from('tasks').select('id,title,description,due_date,period_start,period_end,schedule_type,repeat_until_done,completed_at,priority,status,category,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('due_date'),
+      supabase.from('tasks').select('id,title,description,due_date,period_start,period_end,schedule_type,repeat_until_done,completed_at,priority,status,category,recurrence_template_id,occurrence_date,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('due_date'),
       supabase.from('task_assignees').select('task_id,person_id,done,done_at,done_by').eq('workspace_id',CONFIG.workspaceId),
-      supabase.from('lab_events').select('id,event_date,event_time,event_type,title,description,participants,impact,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('event_date',{ascending:true})
+      supabase.from('lab_events').select('id,event_date,event_time,event_type,title,description,participants,impact,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('event_date',{ascending:true}),
+      supabase.from('recurring_task_templates').select('id,title,description,days_of_month,starts_on,ends_on,priority,initial_status,category,carry_until_done,active,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('title'),
+      supabase.from('recurring_task_assignees').select('template_id,person_id').eq('workspace_id',CONFIG.workspaceId)
     ]);
-    for(const result of [peopleResult,tasksResult,assigneeResult,eventsResult]) if(result.error) throw result.error;
+    for(const result of [peopleResult,tasksResult,assigneeResult,eventsResult,templatesResult,templateAssigneesResult]) if(result.error) throw result.error;
     const assignmentsByTask=new Map();
     for(const row of assigneeResult.data||[]){
       const list=assignmentsByTask.get(row.task_id)||[];
       list.push({personId:row.person_id,done:Boolean(row.done),doneAt:row.done_at,doneBy:row.done_by});
       assignmentsByTask.set(row.task_id,list);
     }
+    const templateAssignees=new Map(); for(const row of templateAssigneesResult.data||[]){const list=templateAssignees.get(row.template_id)||[];list.push(row.person_id);templateAssignees.set(row.template_id,list);}
     state={
       people:(peopleResult.data||[]).map(p=>({...p})),
       tasks:(tasksResult.data||[]).map(t=>({
         id:t.id,title:t.title,description:t.description||'',dueDate:t.due_date,
         periodStart:t.period_start||t.due_date,periodEnd:t.period_end||t.due_date,scheduleType:t.schedule_type||'day',repeatUntilDone:Boolean(t.repeat_until_done),completedAt:t.completed_at||null,
-        priority:t.priority,status:t.status,category:t.category||'',createdAt:t.created_at,updatedAt:t.updated_at,assignees:assignmentsByTask.get(t.id)||[]
+        priority:t.priority,status:t.status,category:t.category||'',recurrenceTemplateId:t.recurrence_template_id||null,occurrenceDate:t.occurrence_date||null,createdAt:t.created_at,updatedAt:t.updated_at,assignees:assignmentsByTask.get(t.id)||[]
       })),
       events:(eventsResult.data||[]).map(e=>({
         id:e.id,eventDate:e.event_date,eventTime:normalizeTime(e.event_time),eventType:e.event_type,title:e.title,description:e.description||'',participants:e.participants||'',impact:e.impact||'',createdAt:e.created_at,updatedAt:e.updated_at
-      }))
+      })),
+      recurringTemplates:(templatesResult.data||[]).map(t=>({id:t.id,title:t.title,description:t.description||'',daysOfMonth:(t.days_of_month||[]).map(Number),startsOn:t.starts_on,endsOn:t.ends_on||'',priority:t.priority,initialStatus:t.initial_status,category:t.category||'',carryUntilDone:Boolean(t.carry_until_done),active:Boolean(t.active),assigneeIds:templateAssignees.get(t.id)||[],createdAt:t.created_at,updatedAt:t.updated_at}))
     };
     localStorage.setItem(CACHE_KEY,JSON.stringify(state));
     render(); setConnection('online','Online');
@@ -300,6 +357,8 @@ function subscribeRealtime(){
     .on('postgres_changes',{event:'*',schema:'public',table:'tasks'},scheduleReload)
     .on('postgres_changes',{event:'*',schema:'public',table:'task_assignees'},scheduleReload)
     .on('postgres_changes',{event:'*',schema:'public',table:'lab_events'},scheduleReload)
+    .on('postgres_changes',{event:'*',schema:'public',table:'recurring_task_templates'},scheduleReload)
+    .on('postgres_changes',{event:'*',schema:'public',table:'recurring_task_assignees'},scheduleReload)
     .subscribe(status=>{
       if(status==='SUBSCRIBED') setConnection('online','Online');
       else if(status==='CHANNEL_ERROR' || status==='TIMED_OUT') setConnection('offline','Reconectando');
@@ -308,8 +367,9 @@ function subscribeRealtime(){
 }
 function scheduleReload(){ clearTimeout(reloadTimer); reloadTimer=setTimeout(()=>loadData(false),220); }
 
-function render(){ renderPeriodTitle(); renderCurrentContext(); renderMonthStrip(); renderPeople(); renderCategoryFilter(); renderBoard(); renderMetrics(); renderEventsPanel(); }
+function render(){ renderPeriodTitle(); renderCurrentContext(); renderMonthStrip(); renderPeople(); renderRecurringTemplatesPanel(); renderCategoryFilter(); renderBoard(); renderMetrics(); renderEventsPanel(); renderCalendar(); renderHolidays(); renderAppView(); }
 function renderPeriodTitle(){
+  if(appView==='calendar'||appView==='holidays'){ const text=cursorDate.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); $('periodTitle').textContent=capitalize(text); return; }
   const {start,end}=periodRange();
   if(viewMode==='week'){
     const sameMonth=start.getMonth()===end.getMonth(); const sameYear=start.getFullYear()===end.getFullYear();
@@ -366,6 +426,7 @@ function taskCard(task){
   card.className=`task-card ${late?'overdue':''} ${locked?'history-locked':''}`; card.draggable=!locked; card.dataset.id=task.id;
   const assigneesHtml=assignments.map(item=>{ const person=getPerson(item.personId); return `<button class="assignee-chip ${item.done?'done':''}" type="button" data-person-id="${esc(person.id)}" title="${locked?'Período histórico protegido':`Clique para ${item.done?'reabrir':'concluir'} a participação de ${esc(person.name)}`}"><span class="avatar" style="background:${esc(person.color)}">${esc(initials(person.name))}</span><span class="assignee-chip-name">${esc(person.name)}</span><span class="assignee-chip-check">${item.done?'✓':'○'}</span></button>`; }).join('');
   const badges=[`<span class="schedule-badge">${esc(scheduleTypeLabels[scheduleTypeOf(task)])}: ${esc(taskPeriodLabel(task))}</span>`];
+  if(task.recurrenceTemplateId) badges.push('<span class="repeat-badge recurring-badge">🔁 Mensal</span>');
   if(task.repeatUntilDone) badges.push('<span class="repeat-badge">↻ Até concluir</span>');
   if(carried) badges.push(`<span class="carryover-badge">Trazida de ${taskPeriodEnd(task).toLocaleDateString('pt-BR')}</span>`);
   if(locked) badges.push('<span class="locked-badge">🔒 Histórico protegido</span>');
@@ -385,6 +446,37 @@ function taskCard(task){
   return card;
 }
 
+function renderRecurringTemplatesPanel(){
+  const panel=$('recurringTemplatesPanel'); if(!panel)return; const templates=state.recurringTemplates||[]; $('recurringCount').textContent=templates.filter(t=>t.active).length; panel.innerHTML='';
+  if(!templates.length){panel.innerHTML='<div class="empty">Nenhuma regra mensal.</div>';return;}
+  templates.slice(0,5).forEach(template=>{const card=document.createElement('div');card.className=`recurring-template-card ${template.active?'':'inactive'}`;card.innerHTML=`<div class="recurring-template-title">🔁 ${esc(template.title)}</div><div class="recurring-template-meta">Dias ${template.daysOfMonth.join(', ')} • ${template.active?'Ativa':'Desativada'}<br>${esc(recurringTemplateAssigneeNames(template))}</div>`;panel.appendChild(card);});
+}
+function openRecurringModal(){renderRecurringManager();$('recurringModalBackdrop').classList.remove('hidden');}
+function closeRecurringModal(){$('recurringModalBackdrop').classList.add('hidden');render();}
+function renderRecurringManager(){
+  const list=$('recurringManagerList'); list.innerHTML=''; const templates=state.recurringTemplates||[];
+  if(!templates.length){list.innerHTML='<div class="empty">Crie uma nova tarefa e escolha “Dias fixos todo mês”.</div>';return;}
+  templates.forEach(template=>{const row=document.createElement('div');row.className='recurring-manager-row';row.innerHTML=`<div><div class="recurring-template-title">${template.active?'🔁':'⏸️'} ${esc(template.title)}</div><div class="recurring-template-meta">Dias ${template.daysOfMonth.join(', ')} de cada mês • início ${formatShortDate(template.startsOn)}${template.endsOn?` • fim ${formatShortDate(template.endsOn)}`:' • sem data final'}<br>${esc(recurringTemplateAssigneeNames(template))}</div></div><div class="recurring-manager-actions"><button class="btn small toggle-template" type="button">${template.active?'Desativar':'Ativar'}</button><button class="btn small danger delete-template" type="button">Excluir regra</button></div>`;row.querySelector('.toggle-template').addEventListener('click',()=>toggleRecurringTemplate(template));row.querySelector('.delete-template').addEventListener('click',()=>deleteRecurringTemplate(template));list.appendChild(row);});
+}
+async function toggleRecurringTemplate(template){try{const {error}=await supabase.from('recurring_task_templates').update({active:!template.active,updated_by:session.user.id}).eq('workspace_id',CONFIG.workspaceId).eq('id',template.id);if(error)throw error;await loadData(false);renderRecurringManager();showToast(template.active?'Recorrência desativada.':'Recorrência ativada.');}catch(error){showToast(friendlyError(error));}}
+async function deleteRecurringTemplate(template){if(!confirm(`Excluir a regra mensal “${template.title}”? As tarefas já geradas serão preservadas.`))return;try{const {error}=await supabase.from('recurring_task_templates').delete().eq('workspace_id',CONFIG.workspaceId).eq('id',template.id);if(error)throw error;await loadData(false);renderRecurringManager();showToast('Regra mensal excluída; histórico preservado.');}catch(error){showToast(friendlyError(error));}}
+function renderAppView(){
+  $('kanbanView').classList.toggle('hidden',appView!=='kanban'); $('calendarView').classList.toggle('hidden',appView!=='calendar'); $('holidaysView').classList.toggle('hidden',appView!=='holidays'); $('kanbanPeriodSwitch').classList.toggle('hidden',appView!=='kanban');
+  $('kanbanViewBtn').classList.toggle('active',appView==='kanban');$('calendarViewBtn').classList.toggle('active',appView==='calendar');$('holidaysViewBtn').classList.toggle('active',appView==='holidays');
+}
+async function setAppView(next){appView=next;if(next!=='kanban')viewMode='month';const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);await loadData(false);}
+function renderCalendar(){
+  const grid=$('calendarGrid'); if(!grid)return; grid.innerHTML=''; const monthStart=startOfMonth(cursorDate); const first=startOfWeek(monthStart); const today=new Date();
+  for(let i=0;i<42;i++){const date=addDays(first,i);const iso=localISO(date);const tasks=state.tasks.filter(t=>taskVisibleOnDate(t,date));const events=state.events.filter(e=>e.eventDate===iso);const holidays=holidaysForDate(date);const cell=document.createElement('button');cell.type='button';cell.className=`calendar-day ${date.getMonth()===cursorDate.getMonth()?'':'outside'} ${sameLocalDay(date,today)?'today':''} ${holidays.length?'has-holiday':''}`;
+    const holidayHtml=holidays.map(h=>`<div class="calendar-holiday ${holidayClass(h)}">${holidayScopeIcon(h)} ${esc(h.name)}</div>`).join('');const taskHtml=tasks.slice(0,3).map(t=>`<div class="calendar-task">${statusIcon(t.status)} ${esc(t.title)}</div>`).join('');const more=tasks.length>3?`<div class="calendar-more">+${tasks.length-3} tarefa(s)</div>`:'';const eventHtml=events.length?`<div class="calendar-event-dot">⚠️ ${events.length} ocorrência(s)</div>`:'';
+    cell.innerHTML=`<div class="calendar-day-head"><span class="calendar-day-number">${date.getDate()}</span><span class="calendar-day-counts">${tasks.length?'📋 '+tasks.length:''}</span></div><div class="calendar-holidays">${holidayHtml}</div><div class="calendar-tasks">${taskHtml}${more}</div>${eventHtml}`;
+    cell.addEventListener('click',()=>{cursorDate=new Date(date);selectedDay=iso;viewMode='week';appView='kanban';$('weekModeBtn').classList.add('active');$('monthModeBtn').classList.remove('active');render();});grid.appendChild(cell);
+  }
+}
+function renderHolidays(){
+  const list=$('holidaysList'); if(!list)return; const year=cursorDate.getFullYear();$('holidaysYearBadge').textContent=year;const holidays=holidaysForYear(year);list.innerHTML='';
+  for(let month=0;month<12;month++){const items=holidays.filter(item=>parseISO(item.date).getMonth()===month);if(!items.length)continue;const card=document.createElement('section');card.className='holiday-month-card';card.innerHTML=`<h3>${capitalize(new Date(year,month,1).toLocaleDateString('pt-BR',{month:'long'}))}</h3>`+items.map(item=>`<div class="holiday-list-item"><div class="holiday-date-box">${parseISO(item.date).getDate()}<br><small>${parseISO(item.date).toLocaleDateString('pt-BR',{weekday:'short'}).replace('.','')}</small></div><div><div class="holiday-name">${holidayScopeIcon(item)} ${esc(item.name)}</div><div class="holiday-meta"><span class="holiday-tag">${esc(holidayScopeLabel(item.scope,item.kind))}</span></div></div></div>`).join('');list.appendChild(card);}
+}
 function renderEventsPanel(){
   const panel=$('eventsPanel'); if(!panel) return;
   const events=filteredEvents(); $('eventsCount').textContent=events.length;
@@ -412,27 +504,23 @@ function renderTaskAssigneePicker(assignments=[]){
 function selectedAssigneeIds(){ return [...$('taskAssigneePicker').querySelectorAll('input[type="checkbox"]:checked')].map(input=>input.value); }
 function defaultTaskDate(){ if(selectedDay!=='all') return selectedDay; const {start,end}=periodRange(); const current=startOfDay(new Date()); return localISO(current>=start&&current<=end?current:start); }
 function scheduleFromForm(){
-  return scheduleRange($('taskScheduleType').value,$('taskDueDate').value,$('taskMonth').value);
+  const type=$('taskScheduleType').value; if(type==='monthly_recurring'){const start=$('recurrenceStartsOn').value||localISO(new Date());return {type,start:parseISO(start),end:parseISO(start)};}
+  return scheduleRange(type,$('taskDueDate').value,$('taskMonth').value);
 }
+
 function updateTaskScheduleFields(){
-  const type=$('taskScheduleType').value;
-  $('taskDateField').classList.toggle('hidden',type==='month');
-  $('taskMonthField').classList.toggle('hidden',type!=='month');
+  const type=$('taskScheduleType').value; const recurring=type==='monthly_recurring';
+  $('taskDateField').classList.toggle('hidden',type==='month'||recurring); $('taskMonthField').classList.toggle('hidden',type!=='month'); $('monthlyRecurrenceFields').classList.toggle('hidden',!recurring); $('taskRepeatUntilDone').closest('.repeat-toggle').parentElement.classList.toggle('hidden',recurring);
   $('taskDateLabel').textContent=type==='week'?'Escolha um dia da semana *':'Data da tarefa *';
-  const range=scheduleFromForm();
-  const repeat=$('taskRepeatUntilDone').checked;
-  let message=`${scheduleTypeLabels[range.type]}: ${range.start.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}`;
-  if(range.type!=='day') message+=` até ${range.end.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}`;
-  if(repeat) message+=' • Se não for concluída, continuará aparecendo nos períodos seguintes até a conclusão.';
-  else message+=' • Depois desse período, ficará apenas no histórico.';
-  $('taskSchedulePreview').textContent=message;
+  if(recurring){const days=selectedMonthlyDays();$('taskSchedulePreview').textContent=days.length?`Todo mês nos dias ${days.join(', ')}. Cada data terá conclusão independente.`:'Selecione um ou mais dias do mês.';return;}
+  const range=scheduleFromForm(); const repeat=$('taskRepeatUntilDone').checked;let message=`${scheduleTypeLabels[range.type]}: ${range.start.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}`;if(range.type!=='day')message+=` até ${range.end.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}`;message+=repeat?' • Se não for concluída, continuará aparecendo até a conclusão.':' • Depois desse período, ficará apenas no histórico.';$('taskSchedulePreview').textContent=message;
 }
 function setTaskScheduleForm(task=null){
   const type=task?scheduleTypeOf(task):'day'; const start=task?taskPeriodStart(task):parseISO(defaultTaskDate());
   $('taskScheduleType').value=type;
   $('taskDueDate').value=localISO(start);
   $('taskMonth').value=`${start.getFullYear()}-${String(start.getMonth()+1).padStart(2,'0')}`;
-  $('taskRepeatUntilDone').checked=Boolean(task?.repeatUntilDone);
+  $('taskRepeatUntilDone').checked=Boolean(task?.repeatUntilDone); $('recurrenceStartsOn').value=localISO(startOfDay(new Date())); $('recurrenceEndsOn').value=''; renderMonthlyDaysPicker([]); $('recurrenceInstanceNotice').classList.toggle('hidden',!task?.recurrenceTemplateId); $('taskScheduleType').disabled=Boolean(task?.recurrenceTemplateId);
   updateTaskScheduleFields();
 }
 async function requestTaskEdit(taskId){
@@ -448,7 +536,7 @@ function openTaskModal(taskId=null,unlocked=false){
   $('taskPriority').value=task?.priority||'media'; $('taskStatus').value=task?.status||'afazer'; $('taskCategory').value=task?.category||'';
   $('deleteTaskBtn').classList.toggle('hidden',!task); $('taskModalBackdrop').classList.remove('hidden'); setTimeout(()=>$('taskTitle').focus(),30);
 }
-function closeTaskModal(){ $('taskModalBackdrop').classList.add('hidden'); editingTaskId=null; editingTaskUnlocked=false; $('taskForm').reset(); }
+function closeTaskModal(){ $('taskModalBackdrop').classList.add('hidden'); editingTaskId=null; editingTaskUnlocked=false; $('taskScheduleType').disabled=false; $('taskForm').reset(); }
 
 function requestPastAuthorization(task,action='edit'){
   const expected=action==='delete'?'DELETE':'EDITAR';
@@ -475,6 +563,12 @@ function confirmPastGuard(){
 
 async function saveTask(event){
   event.preventDefault(); const assigneeIds=selectedAssigneeIds(); const oldTask=state.tasks.find(t=>t.id===editingTaskId);
+  if(!editingTaskId && $('taskScheduleType').value==='monthly_recurring'){
+    const title=$('taskTitle').value.trim(); const days=selectedMonthlyDays(); const startsOn=$('recurrenceStartsOn').value; const endsOn=$('recurrenceEndsOn').value||null;
+    if(!title||!assigneeIds.length||!days.length||!startsOn){showToast('Preencha título, responsáveis, início e pelo menos um dia do mês.');return;} if(endsOn&&endsOn<startsOn){showToast('A data final não pode ser anterior ao início.');return;}
+    setLoading(true,'Criando recorrência mensal...');
+    try{const {data,error}=await supabase.from('recurring_task_templates').insert({workspace_id:CONFIG.workspaceId,title,description:$('taskDescription').value.trim()||null,days_of_month:days,starts_on:startsOn,ends_on:endsOn,priority:$('taskPriority').value,initial_status:$('taskStatus').value==='concluido'?'afazer':$('taskStatus').value,category:$('taskCategory').value.trim()||null,carry_until_done:false,active:true,created_by:session.user.id,updated_by:session.user.id}).select('id').single();if(error)throw error;const rows=assigneeIds.map(personId=>({workspace_id:CONFIG.workspaceId,template_id:data.id,person_id:personId}));const {error:assignError}=await supabase.from('recurring_task_assignees').insert(rows);if(assignError)throw assignError;const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);closeTaskModal();await loadData(false);showToast('Recorrência mensal criada.');}catch(error){console.error(error);showToast(friendlyError(error));}finally{setLoading(false);}return;
+  }
   if(oldTask && taskIsPastLocked(oldTask) && !editingTaskUnlocked){ const ok=await requestPastAuthorization(oldTask,'edit'); if(!ok)return; editingTaskUnlocked=true; }
   const schedule=scheduleFromForm(); const status=$('taskStatus').value;
   const payload={
@@ -558,13 +652,13 @@ async function removePerson(id){
   try{const {error}=await supabase.from('people').delete().eq('workspace_id',CONFIG.workspaceId).eq('id',id);if(error)throw error;if(selectedPerson===id)selectedPerson='all';await loadData(false);renderTeamEditor();showToast('Responsável removido.');}catch(error){showToast(friendlyError(error));}
 }
 
-function setMode(mode){viewMode=mode;const today=new Date();const cursorWeek=startOfWeek(cursorDate);const todayWeek=startOfWeek(today);selectedDay=mode==='week'&&sameLocalDay(cursorWeek,todayWeek)?localISO(today):'all';$('weekModeBtn').classList.toggle('active',mode==='week');$('monthModeBtn').classList.toggle('active',mode==='month');render();}
-function shiftPeriod(direction){cursorDate=viewMode==='week'?addDays(cursorDate,7*direction):new Date(cursorDate.getFullYear(),cursorDate.getMonth()+direction,1);selectedDay='all';render();}
+async function setMode(mode){viewMode=mode;const today=new Date();const cursorWeek=startOfWeek(cursorDate);const todayWeek=startOfWeek(today);selectedDay=mode==='week'&&sameLocalDay(cursorWeek,todayWeek)?localISO(today):'all';$('weekModeBtn').classList.toggle('active',mode==='week');$('monthModeBtn').classList.toggle('active',mode==='month');const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);await loadData(false);}
+async function shiftPeriod(direction){cursorDate=(appView==='kanban'&&viewMode==='week')?addDays(cursorDate,7*direction):new Date(cursorDate.getFullYear(),cursorDate.getMonth()+direction,1);selectedDay='all';const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);await loadData(false);}
 function resetFilters(){selectedPerson='all';selectedDay='all';$('searchInput').value='';$('priorityFilter').value='all';$('categoryFilter').value='all';render();showToast('Filtros limpos.');}
 function closeSidebarOnMobile(){if(window.innerWidth<=850)$('sidebar').classList.remove('open');}
 
 function exportData(){
-  const backup={version:7,exportedAt:new Date().toISOString(),people:state.people.map(p=>({id:p.id,name:p.name,color:p.color})),tasks:state.tasks.map(t=>({id:t.id,title:t.title,description:t.description,assignees:t.assignees,dueDate:t.dueDate,periodStart:t.periodStart,periodEnd:t.periodEnd,scheduleType:t.scheduleType,repeatUntilDone:t.repeatUntilDone,completedAt:t.completedAt,priority:t.priority,status:t.status,category:t.category})),events:state.events.map(e=>({id:e.id,eventDate:e.eventDate,eventTime:normalizeTime(e.eventTime),eventType:e.eventType,title:e.title,description:e.description,participants:e.participants,impact:e.impact}))};
+  const backup={version:10,exportedAt:new Date().toISOString(),people:state.people.map(p=>({id:p.id,name:p.name,color:p.color})),tasks:state.tasks.map(t=>({id:t.id,title:t.title,description:t.description,assignees:t.assignees,dueDate:t.dueDate,periodStart:t.periodStart,periodEnd:t.periodEnd,scheduleType:t.scheduleType,repeatUntilDone:t.repeatUntilDone,completedAt:t.completedAt,priority:t.priority,status:t.status,category:t.category})),events:state.events.map(e=>({id:e.id,eventDate:e.eventDate,eventTime:normalizeTime(e.eventTime),eventType:e.eventType,title:e.title,description:e.description,participants:e.participants,impact:e.impact})),recurringTemplates:state.recurringTemplates};
   const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`LFR_Planejamento_Online_Backup_${localISO(new Date())}.json`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);showToast('Backup exportado.');
 }
 async function importBackup(file){
@@ -892,10 +986,84 @@ function buildWeeklyHtmlReport(){
 </html>`;
   return {html,occurrenceStart,occurrenceEnd};
 }
+function prepareWeeklyHtmlReport(){
+  const report=buildWeeklyHtmlReport();
+  currentReportHtml='\ufeff'+report.html;
+  currentReportFileName=`LFR_Relatorio_Semanal_${localISO(report.occurrenceStart)}_a_${localISO(report.occurrenceEnd)}.html`;
+  return report;
+}
+function releaseReportObjectUrl(){
+  if(currentReportObjectUrl){
+    URL.revokeObjectURL(currentReportObjectUrl);
+    currentReportObjectUrl='';
+  }
+}
+function openWeeklyHtmlReportPreview(){
+  try{
+    const report=prepareWeeklyHtmlReport();
+    releaseReportObjectUrl();
+    currentReportObjectUrl=URL.createObjectURL(new Blob([currentReportHtml],{type:'text/html;charset=utf-8'}));
+    const frame=$('reportPreviewFrame');
+    frame.src=currentReportObjectUrl;
+    $('reportPreviewPeriod').textContent=`Ocorrências: ${reportDateTime(report.occurrenceStart)} até antes de ${reportDateTime(report.occurrenceEnd)}`;
+    $('reportPreviewBackdrop').classList.remove('hidden');
+    document.body.classList.add('modal-open');
+    showToast('Relatório aberto para visualização.');
+  }catch(error){
+    console.error('Falha ao abrir relatório HTML:',error);
+    showToast(`Não foi possível gerar o relatório: ${friendlyError(error)}`);
+  }
+}
+function closeWeeklyHtmlReportPreview(){
+  $('reportPreviewBackdrop').classList.add('hidden');
+  document.body.classList.remove('modal-open');
+  const frame=$('reportPreviewFrame');
+  frame.removeAttribute('src');
+  releaseReportObjectUrl();
+}
+function downloadWeeklyHtmlReport(){
+  try{
+    if(!currentReportHtml || !currentReportFileName) prepareWeeklyHtmlReport();
+    downloadBlob(currentReportHtml,'text/html;charset=utf-8',currentReportFileName);
+    showToast('Relatório HTML baixado.');
+  }catch(error){
+    console.error('Falha ao baixar relatório HTML:',error);
+    showToast(`Não foi possível baixar o relatório: ${friendlyError(error)}`);
+  }
+}
+function openWeeklyHtmlReportWindow(){
+  try{
+    if(!currentReportHtml || !currentReportFileName) prepareWeeklyHtmlReport();
+    const reportWindow=window.open('','_blank');
+    if(!reportWindow){
+      showToast('O navegador bloqueou a nova janela. Libere pop-ups ou use a visualização interna.');
+      return;
+    }
+    reportWindow.document.open();
+    reportWindow.document.write(currentReportHtml.replace(/^\ufeff/,''));
+    reportWindow.document.close();
+    reportWindow.focus();
+  }catch(error){
+    console.error('Falha ao abrir relatório em nova janela:',error);
+    showToast(`Não foi possível abrir a nova janela: ${friendlyError(error)}`);
+  }
+}
+function printWeeklyHtmlReport(){
+  const frame=$('reportPreviewFrame');
+  try{
+    if(!frame?.contentWindow){
+      showToast('Abra a pré-visualização do relatório primeiro.');
+      return;
+    }
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+  }catch(error){
+    console.error('Falha ao imprimir relatório:',error);
+    showToast('Não foi possível abrir a impressão. Use “Abrir em nova janela” e imprima por lá.');
+  }
+}
 function generateWeeklyHtmlReport(){
-  const {html,occurrenceStart,occurrenceEnd}=buildWeeklyHtmlReport();
-  downloadBlob('﻿'+html,'text/html;charset=utf-8',`LFR_Relatorio_Semanal_${localISO(occurrenceStart)}_a_${localISO(occurrenceEnd)}.html`);
-  showToast(`Relatório HTML gerado até o corte de ${reportDateTime(occurrenceEnd)}.`);
+  openWeeklyHtmlReportPreview();
 }
 function taskAssigneeReport(task){
   const assignees=getTaskAssignees(task);
@@ -991,19 +1159,21 @@ function generateWeeklyTextReport(){
 
 function bindEvents(){
   $('loginForm').addEventListener('submit',login);$('signupBtn').addEventListener('click',signup);$('logoutBtn').addEventListener('click',logout);
-  $('weekModeBtn').addEventListener('click',()=>setMode('week'));$('monthModeBtn').addEventListener('click',()=>setMode('month'));$('prevPeriodBtn').addEventListener('click',()=>shiftPeriod(-1));$('nextPeriodBtn').addEventListener('click',()=>shiftPeriod(1));$('todayBtn').addEventListener('click',()=>{cursorDate=new Date();viewMode='week';selectedDay=localISO(new Date());$('weekModeBtn').classList.add('active');$('monthModeBtn').classList.remove('active');render();});
+  $('kanbanViewBtn').addEventListener('click',()=>setAppView('kanban'));$('calendarViewBtn').addEventListener('click',()=>setAppView('calendar'));$('holidaysViewBtn').addEventListener('click',()=>setAppView('holidays'));
+  $('weekModeBtn').addEventListener('click',()=>setMode('week'));$('monthModeBtn').addEventListener('click',()=>setMode('month'));$('prevPeriodBtn').addEventListener('click',()=>shiftPeriod(-1));$('nextPeriodBtn').addEventListener('click',()=>shiftPeriod(1));$('todayBtn').addEventListener('click',async()=>{cursorDate=new Date();if(appView==='kanban'){viewMode='week';selectedDay=localISO(new Date());$('weekModeBtn').classList.add('active');$('monthModeBtn').classList.remove('active');}const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);await loadData(false);});
   [$('newTaskBtn'),$('toolbarNewTaskBtn')].forEach(btn=>btn.addEventListener('click',()=>openTaskModal()));[$('teamBtn'),$('managePeopleBtn')].forEach(btn=>btn.addEventListener('click',openTeamModal));
   $('closeTaskModalBtn').addEventListener('click',closeTaskModal);$('cancelTaskBtn').addEventListener('click',closeTaskModal);$('taskForm').addEventListener('submit',saveTask);$('deleteTaskBtn').addEventListener('click',deleteTask);
-  $('taskScheduleType').addEventListener('change',updateTaskScheduleFields);$('taskDueDate').addEventListener('change',updateTaskScheduleFields);$('taskMonth').addEventListener('change',updateTaskScheduleFields);$('taskRepeatUntilDone').addEventListener('change',updateTaskScheduleFields);
+  $('taskScheduleType').addEventListener('change',updateTaskScheduleFields);$('taskDueDate').addEventListener('change',updateTaskScheduleFields);$('taskMonth').addEventListener('change',updateTaskScheduleFields);$('taskRepeatUntilDone').addEventListener('change',updateTaskScheduleFields);$('monthlyDaysPicker').addEventListener('change',updateTaskScheduleFields);$('recurrenceStartsOn').addEventListener('change',updateTaskScheduleFields);$('recurrenceEndsOn').addEventListener('change',updateTaskScheduleFields);
+  $('manageRecurringBtn').addEventListener('click',openRecurringModal);$('closeRecurringModalBtn').addEventListener('click',closeRecurringModal);$('doneRecurringBtn').addEventListener('click',closeRecurringModal);
   $('closeTeamModalBtn').addEventListener('click',closeTeamModal);$('doneTeamBtn').addEventListener('click',closeTeamModal);$('addPersonBtn').addEventListener('click',addPerson);$('newPersonName').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();addPerson();}});
   $('searchInput').addEventListener('input',()=>{renderBoard();renderMetrics();});$('priorityFilter').addEventListener('change',()=>{renderBoard();renderMetrics();});$('categoryFilter').addEventListener('change',()=>{renderBoard();renderMetrics();});$('clearFiltersBtn').addEventListener('click',resetFilters);
   $('exportBtn').addEventListener('click',exportData);$('importBtn').addEventListener('click',()=>$('importFile').click());$('importFile').addEventListener('change',event=>importBackup(event.target.files?.[0]));
-  $('exportSheetBtn').addEventListener('click',exportSpreadsheet);$('importSheetBtn').addEventListener('click',()=>$('importSheetFile').click());$('importSheetFile').addEventListener('change',event=>importSpreadsheet(event.target.files?.[0])); const weeklyHtmlBtn=$('weeklyHtmlBtn'); if(weeklyHtmlBtn) weeklyHtmlBtn.addEventListener('click',generateWeeklyHtmlReport); $('weeklyTxtBtn').addEventListener('click',generateWeeklyTextReport);
+  $('exportSheetBtn').addEventListener('click',exportSpreadsheet);$('importSheetBtn').addEventListener('click',()=>$('importSheetFile').click());$('importSheetFile').addEventListener('change',event=>importSpreadsheet(event.target.files?.[0])); const weeklyHtmlBtn=$('weeklyHtmlBtn'); if(weeklyHtmlBtn) weeklyHtmlBtn.addEventListener('click',generateWeeklyHtmlReport); $('weeklyTxtBtn').addEventListener('click',generateWeeklyTextReport); $('closeReportPreviewBtn').addEventListener('click',closeWeeklyHtmlReportPreview); $('closeReportPreviewFooterBtn').addEventListener('click',closeWeeklyHtmlReportPreview); $('downloadReportHtmlBtn').addEventListener('click',downloadWeeklyHtmlReport); $('openReportWindowBtn').addEventListener('click',openWeeklyHtmlReportWindow); $('printReportBtn').addEventListener('click',printWeeklyHtmlReport);
   $('newEventBtn').addEventListener('click',()=>openEventModal());$('closeEventModalBtn').addEventListener('click',closeEventModal);$('cancelEventBtn').addEventListener('click',closeEventModal);$('eventForm').addEventListener('submit',saveEvent);$('deleteEventBtn').addEventListener('click',deleteEvent);
   $('mobileSidebarBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));
   $('closePastGuardBtn').addEventListener('click',()=>closePastGuard(false));$('cancelPastGuardBtn').addEventListener('click',()=>closePastGuard(false));$('confirmPastGuardBtn').addEventListener('click',confirmPastGuard);$('pastGuardInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();confirmPastGuard();}});
-  $('taskModalBackdrop').addEventListener('click',event=>{if(event.target===$('taskModalBackdrop'))closeTaskModal();});$('teamModalBackdrop').addEventListener('click',event=>{if(event.target===$('teamModalBackdrop'))closeTeamModal();});$('eventModalBackdrop').addEventListener('click',event=>{if(event.target===$('eventModalBackdrop'))closeEventModal();});$('pastGuardBackdrop').addEventListener('click',event=>{if(event.target===$('pastGuardBackdrop'))closePastGuard(false);});
-  document.addEventListener('keydown',event=>{if(event.key==='Escape'){if(!$('pastGuardBackdrop').classList.contains('hidden'))closePastGuard(false);else{if(!$('taskModalBackdrop').classList.contains('hidden'))closeTaskModal();if(!$('teamModalBackdrop').classList.contains('hidden'))closeTeamModal();if(!$('eventModalBackdrop').classList.contains('hidden'))closeEventModal();$('sidebar').classList.remove('open');}}});
+  $('taskModalBackdrop').addEventListener('click',event=>{if(event.target===$('taskModalBackdrop'))closeTaskModal();});$('teamModalBackdrop').addEventListener('click',event=>{if(event.target===$('teamModalBackdrop'))closeTeamModal();});$('eventModalBackdrop').addEventListener('click',event=>{if(event.target===$('eventModalBackdrop'))closeEventModal();});$('recurringModalBackdrop').addEventListener('click',event=>{if(event.target===$('recurringModalBackdrop'))closeRecurringModal();});$('pastGuardBackdrop').addEventListener('click',event=>{if(event.target===$('pastGuardBackdrop'))closePastGuard(false);});$('reportPreviewBackdrop').addEventListener('click',event=>{if(event.target===$('reportPreviewBackdrop'))closeWeeklyHtmlReportPreview();});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'){if(!$('reportPreviewBackdrop').classList.contains('hidden'))closeWeeklyHtmlReportPreview();else if(!$('pastGuardBackdrop').classList.contains('hidden'))closePastGuard(false);else{if(!$('taskModalBackdrop').classList.contains('hidden'))closeTaskModal();if(!$('teamModalBackdrop').classList.contains('hidden'))closeTeamModal();if(!$('eventModalBackdrop').classList.contains('hidden'))closeEventModal();if(!$('recurringModalBackdrop').classList.contains('hidden'))closeRecurringModal();$('sidebar').classList.remove('open');}}});
   $('themeBtn').addEventListener('click',()=>{document.body.classList.toggle('dark');localStorage.setItem(THEME_KEY,document.body.classList.contains('dark')?'dark':'light');});
   document.querySelectorAll('.column').forEach(column=>{
     column.addEventListener('dragover',event=>{event.preventDefault();event.dataTransfer.dropEffect='move';column.classList.add('drag-over');});column.addEventListener('dragleave',()=>column.classList.remove('drag-over'));
