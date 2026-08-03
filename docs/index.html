@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0b2545" />
   <meta name="description" content="Kanban LFR com recorrência mensal, calendário, feriados do Rio de Janeiro, planilhas e relatórios." />
-  <title>LFR Planejamento Online — Tarefa fixa mensal</title>
+  <title>LFR Planejamento Online — Tarefas fixas com avisos</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body class="auth-mode">
@@ -37,7 +37,7 @@
           <code>docs/config.js</code>
           e informe a URL e a chave publicável do seu projeto Supabase.
         </div>
-        <div class="sync-note">V11 • botão Tarefa fixa • calendário e feriados RJ</div>
+        <div class="sync-note">V12 • edite tarefas fixas • avisos de proximidade</div>
       </div>
     </div>
   </section>
@@ -86,6 +86,12 @@
 
     <div class="app-shell">
       <aside id="sidebar" class="sidebar">
+        <section id="fixedAlertsSection" class="sidebar-section fixed-alerts-section">
+          <div class="section-title"><span>🔔 Próximas tarefas fixas</span> <span id="fixedAlertsCount">0</span></div>
+          <div id="fixedAlertsPanel" class="fixed-alerts-panel"></div>
+          <button id="enableNotificationsBtn" class="sidebar-btn notification-btn" type="button"><span class="btn-icon">🔔</span> Ativar avisos do navegador</button>
+        </section>
+
         <section class="sidebar-section">
           <div class="section-title"><span>📊 Resumo do período</span></div>
           <div class="summary-grid">
@@ -174,7 +180,7 @@
           <div id="holidaysList" class="holidays-list"></div>
         </section>
 
-        <footer class="app-footer">LFR Planejamento Online V11 • Tarefa fixa mensal • calendário RJ • desenvolvido por Guilherme Sollo</footer>
+        <footer class="app-footer">LFR Planejamento Online V12 • edição e avisos de tarefas fixas • desenvolvido por Guilherme Sollo</footer>
       </main>
     </div>
   </div>

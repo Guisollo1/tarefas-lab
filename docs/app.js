@@ -3,6 +3,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const CONFIG = window.KANBAN_CONFIG || {};
 const THEME_KEY = 'lfr_planejamento_online_theme';
 const CACHE_KEY = 'lfr_planejamento_online_cache_v7';
+const NOTIFICATION_KEY = 'lfr_fixed_task_notification_date';
 const statusOrder = ['planejado', 'afazer', 'andamento', 'concluido'];
 const statusLabels = { planejado:'Planejado', afazer:'A fazer', andamento:'Em andamento', concluido:'Concluído' };
 const priorityColors = { alta:'#d94b45', media:'#e09f1f', baixa:'#2f8e67' };
@@ -26,6 +27,7 @@ let selectedPerson = 'all';
 let selectedDay = localISO(new Date());
 let editingTaskId = null;
 let fixedTaskCreationMode = false;
+let editingRecurringTemplateId = null;
 let editingTaskUnlocked = false;
 let pastGuardResolver = null;
 let pastGuardExpected = '';
@@ -342,7 +344,7 @@ async function loadData(showCover=false){
       recurringTemplates:(templatesResult.data||[]).map(t=>({id:t.id,title:t.title,description:t.description||'',daysOfMonth:(t.days_of_month||[]).map(Number),startsOn:t.starts_on,endsOn:t.ends_on||'',priority:t.priority,initialStatus:t.initial_status,category:t.category||'',carryUntilDone:Boolean(t.carry_until_done),active:Boolean(t.active),assigneeIds:templateAssignees.get(t.id)||[],createdAt:t.created_at,updatedAt:t.updated_at}))
     };
     localStorage.setItem(CACHE_KEY,JSON.stringify(state));
-    render(); setConnection('online','Online');
+    render(); notifyUpcomingFixedTasks(); setConnection('online','Online');
   }catch(error){
     console.error(error); setConnection('offline','Sem conexão');
     const cached=localStorage.getItem(CACHE_KEY);
@@ -368,7 +370,28 @@ function subscribeRealtime(){
 }
 function scheduleReload(){ clearTimeout(reloadTimer); reloadTimer=setTimeout(()=>loadData(false),220); }
 
-function render(){ renderPeriodTitle(); renderCurrentContext(); renderMonthStrip(); renderPeople(); renderRecurringTemplatesPanel(); renderCategoryFilter(); renderBoard(); renderMetrics(); renderEventsPanel(); renderCalendar(); renderHolidays(); renderAppView(); }
+function render(){ renderPeriodTitle(); renderCurrentContext(); renderMonthStrip(); renderPeople(); renderFixedTaskAlerts(); renderRecurringTemplatesPanel(); renderCategoryFilter(); renderBoard(); renderMetrics(); renderEventsPanel(); renderCalendar(); renderHolidays(); renderAppView(); }
+
+function upcomingFixedTasks(daysAhead=3){
+  const today=startOfDay(new Date()); const limit=addDays(today,daysAhead);
+  return state.tasks.filter(task=>task.recurrenceTemplateId&&task.status!=='concluido').filter(task=>{const due=parseISO(task.occurrenceDate||task.dueDate);return due>=today&&due<=limit;}).sort((a,b)=>(a.occurrenceDate||a.dueDate).localeCompare(b.occurrenceDate||b.dueDate)||a.title.localeCompare(b.title,'pt-BR'));
+}
+function fixedAlertLabel(task){const days=Math.round((parseISO(task.occurrenceDate||task.dueDate)-startOfDay(new Date()))/86400000);return days===0?'É hoje':days===1?'Amanhã':`Daqui a ${days} dias`;}
+function renderFixedTaskAlerts(){
+  const panel=$('fixedAlertsPanel'); if(!panel)return; const tasks=upcomingFixedTasks(); $('fixedAlertsCount').textContent=tasks.length; panel.innerHTML='';
+  if(!tasks.length) panel.innerHTML='<div class="empty">Nenhuma tarefa fixa nos próximos 3 dias.</div>';
+  tasks.slice(0,6).forEach(task=>{const button=document.createElement('button');button.type='button';button.className=`fixed-alert-item ${fixedAlertLabel(task)==='É hoje'?'today':''}`;button.innerHTML=`<div class="fixed-alert-title">📌 ${esc(task.title)}</div><div class="fixed-alert-meta"><strong>${fixedAlertLabel(task)}</strong> • ${formatShortDate(task.occurrenceDate||task.dueDate)} • ${esc(assigneeNames(task).join(', ')||'Sem responsável')}</div>`;button.addEventListener('click',()=>requestTaskEdit(task.id));panel.appendChild(button);});
+  const notificationButton=$('enableNotificationsBtn'); if(!('Notification' in window)){notificationButton.classList.add('hidden');return;} notificationButton.classList.remove('hidden'); notificationButton.classList.toggle('enabled',Notification.permission==='granted');notificationButton.classList.toggle('denied',Notification.permission==='denied');notificationButton.innerHTML=Notification.permission==='granted'?'<span class="btn-icon">✅</span> Avisos do navegador ativos':Notification.permission==='denied'?'<span class="btn-icon">🔕</span> Avisos bloqueados no navegador':'<span class="btn-icon">🔔</span> Ativar avisos do navegador';
+}
+async function enableBrowserNotifications(){
+  if(!('Notification' in window)){showToast('Este navegador não oferece notificações. Os avisos continuarão visíveis no Kanban.');return;}
+  if(Notification.permission==='denied'){showToast('As notificações estão bloqueadas. Libere-as nas configurações do navegador.');return;}
+  const permission=await Notification.requestPermission();renderFixedTaskAlerts();if(permission==='granted'){showToast('Avisos do navegador ativados.');notifyUpcomingFixedTasks(true);}else showToast('Os avisos continuarão aparecendo dentro do Kanban.');
+}
+function notifyUpcomingFixedTasks(force=false){
+  if(!('Notification' in window)||Notification.permission!=='granted')return;const today=localISO(new Date());if(!force&&localStorage.getItem(NOTIFICATION_KEY)===today)return;const tasks=upcomingFixedTasks();if(!tasks.length)return;
+  const todayCount=tasks.filter(task=>fixedAlertLabel(task)==='É hoje').length;const body=todayCount?`${todayCount} tarefa(s) fixa(s) para hoje e ${tasks.length-todayCount} chegando.`:`${tasks.length} tarefa(s) fixa(s) chegando nos próximos 3 dias.`;new Notification('LFR • Tarefas fixas',{body,icon:'./favicon.ico',tag:`lfr-fixed-${today}`});localStorage.setItem(NOTIFICATION_KEY,today);
+}
 function renderPeriodTitle(){
   if(appView==='calendar'||appView==='holidays'){ const text=cursorDate.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); $('periodTitle').textContent=capitalize(text); return; }
   const {start,end}=periodRange();
@@ -457,7 +480,7 @@ function closeRecurringModal(){$('recurringModalBackdrop').classList.add('hidden
 function renderRecurringManager(){
   const list=$('recurringManagerList'); list.innerHTML=''; const templates=state.recurringTemplates||[];
   if(!templates.length){list.innerHTML='<div class="empty">Clique em “Tarefa fixa” para criar a primeira regra mensal.</div>';return;}
-  templates.forEach(template=>{const row=document.createElement('div');row.className='recurring-manager-row';row.innerHTML=`<div><div class="recurring-template-title">${template.active?'🔁':'⏸️'} ${esc(template.title)}</div><div class="recurring-template-meta">Dias ${template.daysOfMonth.join(', ')} de cada mês • início ${formatShortDate(template.startsOn)}${template.endsOn?` • fim ${formatShortDate(template.endsOn)}`:' • sem data final'}<br>${esc(recurringTemplateAssigneeNames(template))}</div></div><div class="recurring-manager-actions"><button class="btn small toggle-template" type="button">${template.active?'Desativar':'Ativar'}</button><button class="btn small danger delete-template" type="button">Excluir regra</button></div>`;row.querySelector('.toggle-template').addEventListener('click',()=>toggleRecurringTemplate(template));row.querySelector('.delete-template').addEventListener('click',()=>deleteRecurringTemplate(template));list.appendChild(row);});
+  templates.forEach(template=>{const row=document.createElement('div');row.className='recurring-manager-row';row.innerHTML=`<div><div class="recurring-template-title">${template.active?'🔁':'⏸️'} ${esc(template.title)}</div><div class="recurring-template-meta">Dias ${template.daysOfMonth.join(', ')} de cada mês • início ${formatShortDate(template.startsOn)}${template.endsOn?` • fim ${formatShortDate(template.endsOn)}`:' • sem data final'}<br>${esc(recurringTemplateAssigneeNames(template))}</div></div><div class="recurring-manager-actions"><button class="btn small edit-template" type="button">✏️ Editar</button><button class="btn small toggle-template" type="button">${template.active?'Desativar':'Ativar'}</button><button class="btn small danger delete-template" type="button">Excluir regra</button></div>`;row.querySelector('.edit-template').addEventListener('click',()=>openFixedTaskModal(template.id));row.querySelector('.toggle-template').addEventListener('click',()=>toggleRecurringTemplate(template));row.querySelector('.delete-template').addEventListener('click',()=>deleteRecurringTemplate(template));list.appendChild(row);});
 }
 async function toggleRecurringTemplate(template){try{const {error}=await supabase.from('recurring_task_templates').update({active:!template.active,updated_by:session.user.id}).eq('workspace_id',CONFIG.workspaceId).eq('id',template.id);if(error)throw error;await loadData(false);renderRecurringManager();showToast(template.active?'Recorrência desativada.':'Recorrência ativada.');}catch(error){showToast(friendlyError(error));}}
 async function deleteRecurringTemplate(template){if(!confirm(`Excluir a regra mensal “${template.title}”? As tarefas já geradas serão preservadas.`))return;try{const {error}=await supabase.from('recurring_task_templates').delete().eq('workspace_id',CONFIG.workspaceId).eq('id',template.id);if(error)throw error;await loadData(false);renderRecurringManager();showToast('Regra mensal excluída; histórico preservado.');}catch(error){showToast(friendlyError(error));}}
@@ -537,14 +560,14 @@ function openTaskModal(taskId=null,unlocked=false){
   $('taskPriority').value=task?.priority||'media'; $('taskStatus').value=task?.status||'afazer'; $('taskCategory').value=task?.category||'';
   $('deleteTaskBtn').classList.toggle('hidden',!task); $('taskModalBackdrop').classList.remove('hidden'); setTimeout(()=>$('taskTitle').focus(),30);
 }
-function openFixedTaskModal(){
+function openFixedTaskModal(templateId=null){
   if(!state.people.length){showToast('Cadastre pelo menos um responsável.');openTeamModal();return;}
-  fixedTaskCreationMode=true; openTaskModal();
-  $('taskModalTitle').textContent='📌 Nova tarefa fixa'; $('taskScheduleType').value='monthly_recurring'; $('taskScheduleType').disabled=true;
+  const template=templateId?state.recurringTemplates.find(item=>item.id===templateId):null; editingRecurringTemplateId=template?.id||null; fixedTaskCreationMode=true; closeRecurringModal(); openTaskModal();
+  $('taskModalTitle').textContent=template?'✏️ Editar tarefa fixa':'📌 Nova tarefa fixa'; $('taskScheduleType').value='monthly_recurring'; $('taskScheduleType').disabled=true;
   $('taskScheduleTypeField').classList.add('hidden'); $('taskStatus').value='afazer'; $('taskStatus').disabled=true; $('taskStatusField').classList.add('hidden');
-  $('recurrenceStartsOn').value=defaultTaskDate(); updateTaskScheduleFields();
+  if(template){$('taskTitle').value=template.title;$('taskDescription').value=template.description;$('taskPriority').value=template.priority;$('taskCategory').value=template.category;$('recurrenceStartsOn').value=template.startsOn;$('recurrenceEndsOn').value=template.endsOn||'';renderMonthlyDaysPicker(template.daysOfMonth);renderTaskAssigneePicker(template.assigneeIds.map(personId=>({personId})));}else $('recurrenceStartsOn').value=defaultTaskDate(); updateTaskScheduleFields();
 }
-function closeTaskModal(){ $('taskModalBackdrop').classList.add('hidden'); editingTaskId=null; editingTaskUnlocked=false; fixedTaskCreationMode=false; $('taskScheduleType').disabled=false; $('taskStatus').disabled=false; $('taskScheduleTypeField').classList.remove('hidden'); $('taskStatusField').classList.remove('hidden'); $('taskForm').reset(); }
+function closeTaskModal(){ $('taskModalBackdrop').classList.add('hidden'); editingTaskId=null; editingRecurringTemplateId=null; editingTaskUnlocked=false; fixedTaskCreationMode=false; $('taskScheduleType').disabled=false; $('taskStatus').disabled=false; $('taskScheduleTypeField').classList.remove('hidden'); $('taskStatusField').classList.remove('hidden'); $('taskForm').reset(); }
 
 function requestPastAuthorization(task,action='edit'){
   const expected=action==='delete'?'DELETE':'EDITAR';
@@ -574,8 +597,11 @@ async function saveTask(event){
   if(!editingTaskId && $('taskScheduleType').value==='monthly_recurring'){
     const title=$('taskTitle').value.trim(); const days=selectedMonthlyDays(); const startsOn=$('recurrenceStartsOn').value; const endsOn=$('recurrenceEndsOn').value||null;
     if(!title||!assigneeIds.length||!days.length||!startsOn){showToast('Preencha título, responsáveis, início e pelo menos um dia do mês.');return;} if(endsOn&&endsOn<startsOn){showToast('A data final não pode ser anterior ao início.');return;}
-    setLoading(true,'Criando recorrência mensal...');
-    try{const {data,error}=await supabase.from('recurring_task_templates').insert({workspace_id:CONFIG.workspaceId,title,description:$('taskDescription').value.trim()||null,days_of_month:days,starts_on:startsOn,ends_on:endsOn,priority:$('taskPriority').value,initial_status:'afazer',category:$('taskCategory').value.trim()||null,carry_until_done:false,active:true,created_by:session.user.id,updated_by:session.user.id}).select('id').single();if(error)throw error;const rows=assigneeIds.map(personId=>({workspace_id:CONFIG.workspaceId,template_id:data.id,person_id:personId}));const {error:assignError}=await supabase.from('recurring_task_assignees').insert(rows);if(assignError)throw assignError;const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);closeTaskModal();await loadData(false);showToast('Tarefa fixa criada. Ela entrará como “A fazer” nos dias escolhidos.');}catch(error){console.error(error);showToast(friendlyError(error));}finally{setLoading(false);}return;
+    setLoading(true,editingRecurringTemplateId?'Atualizando tarefa fixa...':'Criando tarefa fixa...');
+    try{const existingTemplate=state.recurringTemplates.find(item=>item.id===editingRecurringTemplateId);const templatePayload={workspace_id:CONFIG.workspaceId,title,description:$('taskDescription').value.trim()||null,days_of_month:days,starts_on:startsOn,ends_on:endsOn,priority:$('taskPriority').value,initial_status:'afazer',category:$('taskCategory').value.trim()||null,carry_until_done:false,active:existingTemplate?existingTemplate.active:true,updated_by:session.user.id};let templateId=editingRecurringTemplateId;
+      if(templateId){const {error}=await supabase.from('recurring_task_templates').update(templatePayload).eq('workspace_id',CONFIG.workspaceId).eq('id',templateId);if(error)throw error;const {error:deleteAssigneesError}=await supabase.from('recurring_task_assignees').delete().eq('workspace_id',CONFIG.workspaceId).eq('template_id',templateId);if(deleteAssigneesError)throw deleteAssigneesError;const {error:deleteFutureError}=await supabase.from('tasks').delete().eq('workspace_id',CONFIG.workspaceId).eq('recurrence_template_id',templateId).eq('status','afazer').gte('occurrence_date',localISO(new Date()));if(deleteFutureError)throw deleteFutureError;}
+      else{const {data,error}=await supabase.from('recurring_task_templates').insert({...templatePayload,created_by:session.user.id}).select('id').single();if(error)throw error;templateId=data.id;}
+      const rows=assigneeIds.map(personId=>({workspace_id:CONFIG.workspaceId,template_id:templateId,person_id:personId}));const {error:assignError}=await supabase.from('recurring_task_assignees').insert(rows);if(assignError)throw assignError;const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);const wasEditingTemplate=Boolean(editingRecurringTemplateId);closeTaskModal();await loadData(false);showToast(wasEditingTemplate?'Tarefa fixa atualizada; próximas ocorrências foram recalculadas.':'Tarefa fixa criada. Ela entrará como “A fazer” nos dias escolhidos.');}catch(error){console.error(error);showToast(friendlyError(error));}finally{setLoading(false);}return;
   }
   if(oldTask && taskIsPastLocked(oldTask) && !editingTaskUnlocked){ const ok=await requestPastAuthorization(oldTask,'edit'); if(!ok)return; editingTaskUnlocked=true; }
   const schedule=scheduleFromForm(); const status=$('taskStatus').value;
@@ -1170,7 +1196,8 @@ function bindEvents(){
   $('kanbanViewBtn').addEventListener('click',()=>setAppView('kanban'));$('calendarViewBtn').addEventListener('click',()=>setAppView('calendar'));$('holidaysViewBtn').addEventListener('click',()=>setAppView('holidays'));
   $('weekModeBtn').addEventListener('click',()=>setMode('week'));$('monthModeBtn').addEventListener('click',()=>setMode('month'));$('prevPeriodBtn').addEventListener('click',()=>shiftPeriod(-1));$('nextPeriodBtn').addEventListener('click',()=>shiftPeriod(1));$('todayBtn').addEventListener('click',async()=>{cursorDate=new Date();if(appView==='kanban'){viewMode='week';selectedDay=localISO(new Date());$('weekModeBtn').classList.add('active');$('monthModeBtn').classList.remove('active');}const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);await loadData(false);});
   [$('newTaskBtn'),$('toolbarNewTaskBtn')].forEach(btn=>btn.addEventListener('click',()=>openTaskModal()));[$('teamBtn'),$('managePeopleBtn')].forEach(btn=>btn.addEventListener('click',openTeamModal));
-  [$('fixedTaskBtn'),$('toolbarFixedTaskBtn')].forEach(btn=>btn.addEventListener('click',openFixedTaskModal));
+  [$('fixedTaskBtn'),$('toolbarFixedTaskBtn')].forEach(btn=>btn.addEventListener('click',()=>openFixedTaskModal()));
+  $('enableNotificationsBtn').addEventListener('click',enableBrowserNotifications);
   $('closeTaskModalBtn').addEventListener('click',closeTaskModal);$('cancelTaskBtn').addEventListener('click',closeTaskModal);$('taskForm').addEventListener('submit',saveTask);$('deleteTaskBtn').addEventListener('click',deleteTask);
   $('taskScheduleType').addEventListener('change',updateTaskScheduleFields);$('taskDueDate').addEventListener('change',updateTaskScheduleFields);$('taskMonth').addEventListener('change',updateTaskScheduleFields);$('taskRepeatUntilDone').addEventListener('change',updateTaskScheduleFields);$('monthlyDaysPicker').addEventListener('change',updateTaskScheduleFields);$('recurrenceStartsOn').addEventListener('change',updateTaskScheduleFields);$('recurrenceEndsOn').addEventListener('change',updateTaskScheduleFields);
   $('manageRecurringBtn').addEventListener('click',openRecurringModal);$('closeRecurringModalBtn').addEventListener('click',closeRecurringModal);$('doneRecurringBtn').addEventListener('click',closeRecurringModal);
