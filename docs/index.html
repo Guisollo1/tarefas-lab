@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0b2545" />
   <meta name="description" content="Kanban LFR com recorrência mensal, calendário, feriados do Rio de Janeiro, planilhas e relatórios." />
-  <title>LFR Planejamento Online — Tarefas fixas com avisos</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <title>LFR Planejamento Online V14 — Tarefas com links</title>
+  <link rel="stylesheet" href="./styles.css?v=14" />
 </head>
 <body class="auth-mode">
   <section id="authView" class="auth-view">
@@ -37,7 +37,7 @@
           <code>docs/config.js</code>
           e informe a URL e a chave publicável do seu projeto Supabase.
         </div>
-        <div class="sync-note">V12 • edite tarefas fixas • avisos de proximidade</div>
+        <div class="sync-note">V14 • campo de link visível no modal • botão Acessar link</div>
       </div>
     </div>
   </section>
@@ -180,18 +180,19 @@
           <div id="holidaysList" class="holidays-list"></div>
         </section>
 
-        <footer class="app-footer">LFR Planejamento Online V12 • edição e avisos de tarefas fixas • desenvolvido por Guilherme Sollo</footer>
+        <footer class="app-footer">LFR Planejamento Online V14 • campo de link visível • desenvolvido por Guilherme Sollo</footer>
       </main>
     </div>
   </div>
 
   <div id="taskModalBackdrop" class="modal-backdrop hidden">
     <section class="modal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
-      <header class="modal-head"><h2 id="taskModalTitle">Nova tarefa</h2><button id="closeTaskModalBtn" class="modal-close" type="button">×</button></header>
+      <header class="modal-head"><div><h2 id="taskModalTitle">Nova tarefa</h2><small class="modal-version-label">V14 • tarefas com link</small></div><button id="closeTaskModalBtn" class="modal-close" type="button">×</button></header>
       <form id="taskForm">
         <div class="modal-body"><div class="form-grid">
           <div class="field full"><label for="taskTitle">Título da tarefa *</label><input id="taskTitle" class="input" maxlength="100" required placeholder="Ex.: Revisar relatório mensal" /></div>
-          <div class="field full"><label for="taskDescription">Descrição</label><textarea id="taskDescription" class="textarea" maxlength="1000" placeholder="Detalhes, instruções ou observações"></textarea></div>
+          <div class="field full link-field-highlight"><div class="link-field-title"><span>🔗 Link para acessar</span><small>NOVO</small></div><label for="taskLinkUrl">Cole aqui o endereço da página</label><input id="taskLinkUrl" class="input" type="url" maxlength="2000" placeholder="https://exemplo.com/pagina" /><div class="assignee-help">Depois de salvar, o cartão mostrará o botão azul “🔗 Acessar link”.</div></div>
+          <div class="field full"><label for="taskDescription">Descrição / comentário</label><textarea id="taskDescription" class="textarea" maxlength="1000" placeholder="Detalhes, instruções ou observações. Links escritos aqui também ficam clicáveis."></textarea></div>
           <div class="field full"><label>Responsáveis pela tarefa *</label><div id="taskAssigneePicker" class="assignee-picker"></div><div class="assignee-help">Marque uma ou várias pessoas. Cada responsável poderá concluir individualmente sua parte.</div></div>
           <div id="taskScheduleTypeField" class="field"><label for="taskScheduleType">Período da tarefa *</label><select id="taskScheduleType" class="select" required><option value="day">Um dia</option><option value="week">Uma semana</option><option value="month">Um mês</option><option value="monthly_recurring" hidden>Tarefa fixa mensal</option></select></div>
           <div id="taskDateField" class="field"><label id="taskDateLabel" for="taskDueDate">Data da tarefa *</label><input id="taskDueDate" class="input" type="date" /></div>
@@ -306,6 +307,6 @@
 
   <script src="./config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=14"></script>
 </body>
 </html>

@@ -14,6 +14,8 @@ const defaultColors = ['#0b5cab','#7a4cb2','#2f8e67','#c56c24','#d94b45','#0b7a7
 const $ = (id) => document.getElementById(id);
 const esc = (value='') => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+function normalizedTaskUrl(value=''){const text=String(value||'').trim();if(!text)return '';try{const url=new URL(text);return ['http:','https:'].includes(url.protocol)?url.href:'';}catch{return '';}}
+function linkifyTaskDescription(value=''){const text=String(value||'');const regex=/https?:\/\/[^\s<]+/gi;let html='';let last=0;for(const match of text.matchAll(regex)){html+=esc(text.slice(last,match.index));let raw=match[0];let suffix='';while(/[),.;!?]$/.test(raw)){suffix=raw.slice(-1)+suffix;raw=raw.slice(0,-1);}const safe=normalizedTaskUrl(raw);html+=safe?`<a href="${esc(safe)}" target="_blank" rel="noopener noreferrer">${esc(raw)}</a>${esc(suffix)}`:esc(match[0]);last=match.index+match[0].length;}return (html+esc(text.slice(last))).replace(/\n/g,'<br>');}
 
 let supabase = null;
 let session = null;
@@ -317,10 +319,10 @@ async function loadData(showCover=false){
   try{
     const [peopleResult,tasksResult,assigneeResult,eventsResult,templatesResult,templateAssigneesResult]=await Promise.all([
       supabase.from('people').select('id,name,color,active,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).eq('active',true).order('name'),
-      supabase.from('tasks').select('id,title,description,due_date,period_start,period_end,schedule_type,repeat_until_done,completed_at,priority,status,category,recurrence_template_id,occurrence_date,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('due_date'),
+      supabase.from('tasks').select('id,title,description,link_url,due_date,period_start,period_end,schedule_type,repeat_until_done,completed_at,priority,status,category,recurrence_template_id,occurrence_date,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('due_date'),
       supabase.from('task_assignees').select('task_id,person_id,done,done_at,done_by').eq('workspace_id',CONFIG.workspaceId),
       supabase.from('lab_events').select('id,event_date,event_time,event_type,title,description,participants,impact,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('event_date',{ascending:true}),
-      supabase.from('recurring_task_templates').select('id,title,description,days_of_month,starts_on,ends_on,priority,initial_status,category,carry_until_done,active,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('title'),
+      supabase.from('recurring_task_templates').select('id,title,description,link_url,days_of_month,starts_on,ends_on,priority,initial_status,category,carry_until_done,active,created_at,updated_at').eq('workspace_id',CONFIG.workspaceId).order('title'),
       supabase.from('recurring_task_assignees').select('template_id,person_id').eq('workspace_id',CONFIG.workspaceId)
     ]);
     for(const result of [peopleResult,tasksResult,assigneeResult,eventsResult,templatesResult,templateAssigneesResult]) if(result.error) throw result.error;
@@ -334,14 +336,14 @@ async function loadData(showCover=false){
     state={
       people:(peopleResult.data||[]).map(p=>({...p})),
       tasks:(tasksResult.data||[]).map(t=>({
-        id:t.id,title:t.title,description:t.description||'',dueDate:t.due_date,
+        id:t.id,title:t.title,description:t.description||'',linkUrl:t.link_url||'',dueDate:t.due_date,
         periodStart:t.period_start||t.due_date,periodEnd:t.period_end||t.due_date,scheduleType:t.schedule_type||'day',repeatUntilDone:Boolean(t.repeat_until_done),completedAt:t.completed_at||null,
         priority:t.priority,status:t.status,category:t.category||'',recurrenceTemplateId:t.recurrence_template_id||null,occurrenceDate:t.occurrence_date||null,createdAt:t.created_at,updatedAt:t.updated_at,assignees:assignmentsByTask.get(t.id)||[]
       })),
       events:(eventsResult.data||[]).map(e=>({
         id:e.id,eventDate:e.event_date,eventTime:normalizeTime(e.event_time),eventType:e.event_type,title:e.title,description:e.description||'',participants:e.participants||'',impact:e.impact||'',createdAt:e.created_at,updatedAt:e.updated_at
       })),
-      recurringTemplates:(templatesResult.data||[]).map(t=>({id:t.id,title:t.title,description:t.description||'',daysOfMonth:(t.days_of_month||[]).map(Number),startsOn:t.starts_on,endsOn:t.ends_on||'',priority:t.priority,initialStatus:t.initial_status,category:t.category||'',carryUntilDone:Boolean(t.carry_until_done),active:Boolean(t.active),assigneeIds:templateAssignees.get(t.id)||[],createdAt:t.created_at,updatedAt:t.updated_at}))
+      recurringTemplates:(templatesResult.data||[]).map(t=>({id:t.id,title:t.title,description:t.description||'',linkUrl:t.link_url||'',daysOfMonth:(t.days_of_month||[]).map(Number),startsOn:t.starts_on,endsOn:t.ends_on||'',priority:t.priority,initialStatus:t.initial_status,category:t.category||'',carryUntilDone:Boolean(t.carry_until_done),active:Boolean(t.active),assigneeIds:templateAssignees.get(t.id)||[],createdAt:t.created_at,updatedAt:t.updated_at}))
     };
     localStorage.setItem(CACHE_KEY,JSON.stringify(state));
     render(); notifyUpcomingFixedTasks(); setConnection('online','Online');
@@ -456,11 +458,12 @@ function taskCard(task){
   if(locked) badges.push('<span class="locked-badge">🔒 Histórico protegido</span>');
   card.innerHTML=`<div class="task-top"><i class="priority" style="background:${priorityColors[task.priority]||priorityColors.media}" title="Prioridade ${esc(task.priority)}"></i><div class="task-title">${esc(task.title)}</div></div>
     <div class="schedule-badges">${badges.join('')}</div>
-    ${task.description?`<div class="task-description">${esc(task.description)}</div>`:''}${task.category?`<div class="tags"><span class="tag">${esc(task.category)}</span></div>`:''}
+    ${task.description?`<div class="task-description">${linkifyTaskDescription(task.description)}</div>`:''}${normalizedTaskUrl(task.linkUrl)?`<a class="task-link-action" href="${esc(normalizedTaskUrl(task.linkUrl))}" target="_blank" rel="noopener noreferrer">🔗 Acessar link</a>`:''}${task.category?`<div class="tags"><span class="tag">${esc(task.category)}</span></div>`:''}
     <div class="assignee-list">${assigneesHtml||'<span style="font-size:11px;color:var(--muted)">Sem responsável</span>'}</div>
     <div class="assignee-progress">${doneCount}/${assignments.length} responsável${assignments.length===1?'':'is'} concluíram</div>
     <div class="task-footer"><div class="date-chip ${late?'late':''}">${late?'⚠ ':''}${esc(taskPeriodLabel(task))}</div><div style="font-size:10px;color:var(--muted)">${statusLabels[task.status]}</div></div>`;
-  card.addEventListener('click',event=>{ if(event.target.closest('.assignee-chip')) return; requestTaskEdit(task.id); });
+  card.addEventListener('click',event=>{ if(event.target.closest('.assignee-chip,.task-link-action,.task-description a')) return; requestTaskEdit(task.id); });
+  card.querySelectorAll('.task-link-action,.task-description a').forEach(link=>link.addEventListener('click',event=>event.stopPropagation()));
   card.querySelectorAll('.assignee-chip').forEach(button=>button.addEventListener('click',async event=>{event.stopPropagation();if(locked){const ok=await requestPastAuthorization(task,'edit');if(!ok)return;}await toggleAssigneeDone(task.id,button.dataset.personId,true);}));
   card.addEventListener('dragstart',event=>{
     if(locked){event.preventDefault();showToast('Abra a tarefa e digite EDITAR para alterar um período passado.');return;}
@@ -555,7 +558,7 @@ async function requestTaskEdit(taskId){
 function openTaskModal(taskId=null,unlocked=false){
   if(!state.people.length){showToast('Cadastre pelo menos um responsável.');openTeamModal();return;}
   editingTaskId=taskId; editingTaskUnlocked=Boolean(unlocked); const task=state.tasks.find(t=>t.id===taskId);
-  $('taskModalTitle').textContent=task?'Editar tarefa':'Nova tarefa'; $('taskTitle').value=task?.title||''; $('taskDescription').value=task?.description||'';
+  $('taskModalTitle').textContent=task?'Editar tarefa':'Nova tarefa'; $('taskTitle').value=task?.title||''; $('taskDescription').value=task?.description||''; $('taskLinkUrl').value=task?.linkUrl||'';
   const initial=task?.assignees || (selectedPerson!=='all'?[{personId:selectedPerson}]:[]); renderTaskAssigneePicker(initial); setTaskScheduleForm(task);
   $('taskPriority').value=task?.priority||'media'; $('taskStatus').value=task?.status||'afazer'; $('taskCategory').value=task?.category||'';
   $('deleteTaskBtn').classList.toggle('hidden',!task); $('taskModalBackdrop').classList.remove('hidden'); setTimeout(()=>$('taskTitle').focus(),30);
@@ -565,7 +568,7 @@ function openFixedTaskModal(templateId=null){
   const template=templateId?state.recurringTemplates.find(item=>item.id===templateId):null; editingRecurringTemplateId=template?.id||null; fixedTaskCreationMode=true; closeRecurringModal(); openTaskModal();
   $('taskModalTitle').textContent=template?'✏️ Editar tarefa fixa':'📌 Nova tarefa fixa'; $('taskScheduleType').value='monthly_recurring'; $('taskScheduleType').disabled=true;
   $('taskScheduleTypeField').classList.add('hidden'); $('taskStatus').value='afazer'; $('taskStatus').disabled=true; $('taskStatusField').classList.add('hidden');
-  if(template){$('taskTitle').value=template.title;$('taskDescription').value=template.description;$('taskPriority').value=template.priority;$('taskCategory').value=template.category;$('recurrenceStartsOn').value=template.startsOn;$('recurrenceEndsOn').value=template.endsOn||'';renderMonthlyDaysPicker(template.daysOfMonth);renderTaskAssigneePicker(template.assigneeIds.map(personId=>({personId})));}else $('recurrenceStartsOn').value=defaultTaskDate(); updateTaskScheduleFields();
+  if(template){$('taskTitle').value=template.title;$('taskDescription').value=template.description;$('taskLinkUrl').value=template.linkUrl||'';$('taskPriority').value=template.priority;$('taskCategory').value=template.category;$('recurrenceStartsOn').value=template.startsOn;$('recurrenceEndsOn').value=template.endsOn||'';renderMonthlyDaysPicker(template.daysOfMonth);renderTaskAssigneePicker(template.assigneeIds.map(personId=>({personId})));}else $('recurrenceStartsOn').value=defaultTaskDate(); updateTaskScheduleFields();
 }
 function closeTaskModal(){ $('taskModalBackdrop').classList.add('hidden'); editingTaskId=null; editingRecurringTemplateId=null; editingTaskUnlocked=false; fixedTaskCreationMode=false; $('taskScheduleType').disabled=false; $('taskStatus').disabled=false; $('taskScheduleTypeField').classList.remove('hidden'); $('taskStatusField').classList.remove('hidden'); $('taskForm').reset(); }
 
@@ -594,11 +597,12 @@ function confirmPastGuard(){
 
 async function saveTask(event){
   event.preventDefault(); const assigneeIds=selectedAssigneeIds(); const oldTask=state.tasks.find(t=>t.id===editingTaskId);
+  const linkUrl=$('taskLinkUrl').value.trim(); if(linkUrl&&!normalizedTaskUrl(linkUrl)){showToast('Informe um link válido começando com http:// ou https://.');return;}
   if(!editingTaskId && $('taskScheduleType').value==='monthly_recurring'){
     const title=$('taskTitle').value.trim(); const days=selectedMonthlyDays(); const startsOn=$('recurrenceStartsOn').value; const endsOn=$('recurrenceEndsOn').value||null;
     if(!title||!assigneeIds.length||!days.length||!startsOn){showToast('Preencha título, responsáveis, início e pelo menos um dia do mês.');return;} if(endsOn&&endsOn<startsOn){showToast('A data final não pode ser anterior ao início.');return;}
     setLoading(true,editingRecurringTemplateId?'Atualizando tarefa fixa...':'Criando tarefa fixa...');
-    try{const existingTemplate=state.recurringTemplates.find(item=>item.id===editingRecurringTemplateId);const templatePayload={workspace_id:CONFIG.workspaceId,title,description:$('taskDescription').value.trim()||null,days_of_month:days,starts_on:startsOn,ends_on:endsOn,priority:$('taskPriority').value,initial_status:'afazer',category:$('taskCategory').value.trim()||null,carry_until_done:false,active:existingTemplate?existingTemplate.active:true,updated_by:session.user.id};let templateId=editingRecurringTemplateId;
+    try{const existingTemplate=state.recurringTemplates.find(item=>item.id===editingRecurringTemplateId);const templatePayload={workspace_id:CONFIG.workspaceId,title,description:$('taskDescription').value.trim()||null,link_url:linkUrl||null,days_of_month:days,starts_on:startsOn,ends_on:endsOn,priority:$('taskPriority').value,initial_status:'afazer',category:$('taskCategory').value.trim()||null,carry_until_done:false,active:existingTemplate?existingTemplate.active:true,updated_by:session.user.id};let templateId=editingRecurringTemplateId;
       if(templateId){const {error}=await supabase.from('recurring_task_templates').update(templatePayload).eq('workspace_id',CONFIG.workspaceId).eq('id',templateId);if(error)throw error;const {error:deleteAssigneesError}=await supabase.from('recurring_task_assignees').delete().eq('workspace_id',CONFIG.workspaceId).eq('template_id',templateId);if(deleteAssigneesError)throw deleteAssigneesError;const {error:deleteFutureError}=await supabase.from('tasks').delete().eq('workspace_id',CONFIG.workspaceId).eq('recurrence_template_id',templateId).eq('status','afazer').gte('occurrence_date',localISO(new Date()));if(deleteFutureError)throw deleteFutureError;}
       else{const {data,error}=await supabase.from('recurring_task_templates').insert({...templatePayload,created_by:session.user.id}).select('id').single();if(error)throw error;templateId=data.id;}
       const rows=assigneeIds.map(personId=>({workspace_id:CONFIG.workspaceId,template_id:templateId,person_id:personId}));const {error:assignError}=await supabase.from('recurring_task_assignees').insert(rows);if(assignError)throw assignError;const range=monthRangeAroundCursor();await ensureRecurringTasksForRange(range.start,range.end);const wasEditingTemplate=Boolean(editingRecurringTemplateId);closeTaskModal();await loadData(false);showToast(wasEditingTemplate?'Tarefa fixa atualizada; próximas ocorrências foram recalculadas.':'Tarefa fixa criada. Ela entrará como “A fazer” nos dias escolhidos.');}catch(error){console.error(error);showToast(friendlyError(error));}finally{setLoading(false);}return;
@@ -606,7 +610,7 @@ async function saveTask(event){
   if(oldTask && taskIsPastLocked(oldTask) && !editingTaskUnlocked){ const ok=await requestPastAuthorization(oldTask,'edit'); if(!ok)return; editingTaskUnlocked=true; }
   const schedule=scheduleFromForm(); const status=$('taskStatus').value;
   const payload={
-    workspace_id:CONFIG.workspaceId,title:$('taskTitle').value.trim(),description:$('taskDescription').value.trim()||null,
+    workspace_id:CONFIG.workspaceId,title:$('taskTitle').value.trim(),description:$('taskDescription').value.trim()||null,link_url:linkUrl||null,
     due_date:localISO(schedule.end),period_start:localISO(schedule.start),period_end:localISO(schedule.end),schedule_type:schedule.type,repeat_until_done:$('taskRepeatUntilDone').checked,
     completed_at:status==='concluido'?(oldTask?.completedAt||new Date().toISOString()):null,
     priority:$('taskPriority').value,status,category:$('taskCategory').value.trim()||null,updated_by:session.user.id
@@ -692,7 +696,7 @@ function resetFilters(){selectedPerson='all';selectedDay='all';$('searchInput').
 function closeSidebarOnMobile(){if(window.innerWidth<=850)$('sidebar').classList.remove('open');}
 
 function exportData(){
-  const backup={version:10,exportedAt:new Date().toISOString(),people:state.people.map(p=>({id:p.id,name:p.name,color:p.color})),tasks:state.tasks.map(t=>({id:t.id,title:t.title,description:t.description,assignees:t.assignees,dueDate:t.dueDate,periodStart:t.periodStart,periodEnd:t.periodEnd,scheduleType:t.scheduleType,repeatUntilDone:t.repeatUntilDone,completedAt:t.completedAt,priority:t.priority,status:t.status,category:t.category})),events:state.events.map(e=>({id:e.id,eventDate:e.eventDate,eventTime:normalizeTime(e.eventTime),eventType:e.eventType,title:e.title,description:e.description,participants:e.participants,impact:e.impact})),recurringTemplates:state.recurringTemplates};
+  const backup={version:13,exportedAt:new Date().toISOString(),people:state.people.map(p=>({id:p.id,name:p.name,color:p.color})),tasks:state.tasks.map(t=>({id:t.id,title:t.title,description:t.description,linkUrl:t.linkUrl,assignees:t.assignees,dueDate:t.dueDate,periodStart:t.periodStart,periodEnd:t.periodEnd,scheduleType:t.scheduleType,repeatUntilDone:t.repeatUntilDone,completedAt:t.completedAt,priority:t.priority,status:t.status,category:t.category})),events:state.events.map(e=>({id:e.id,eventDate:e.eventDate,eventTime:normalizeTime(e.eventTime),eventType:e.eventType,title:e.title,description:e.description,participants:e.participants,impact:e.impact})),recurringTemplates:state.recurringTemplates};
   const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`LFR_Planejamento_Online_Backup_${localISO(new Date())}.json`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);showToast('Backup exportado.');
 }
 async function importBackup(file){
@@ -711,7 +715,7 @@ async function importBackup(file){
       const importedType=['day','week','month'].includes(oldTask.scheduleType)?oldTask.scheduleType:'day';
       const importedRange=scheduleRange(importedType,oldTask.periodStart||oldTask.dueDate||localISO(new Date()),String(oldTask.periodStart||oldTask.dueDate||localISO(new Date())).slice(0,7));
       const periodStart=oldTask.periodStart||localISO(importedRange.start); const periodEnd=oldTask.periodEnd||localISO(importedRange.end);
-      const {data,error}=await supabase.from('tasks').insert({workspace_id:CONFIG.workspaceId,title:String(oldTask.title||'Tarefa importada').trim(),description:oldTask.description||null,due_date:periodEnd,period_start:periodStart,period_end:periodEnd,schedule_type:importedType,repeat_until_done:Boolean(oldTask.repeatUntilDone),completed_at:oldTask.completedAt||null,priority:['alta','media','baixa'].includes(oldTask.priority)?oldTask.priority:'media',status:statusOrder.includes(oldTask.status)?oldTask.status:'afazer',category:oldTask.category||null,created_by:session.user.id,updated_by:session.user.id}).select('id').single(); if(error)throw error;
+      const {data,error}=await supabase.from('tasks').insert({workspace_id:CONFIG.workspaceId,title:String(oldTask.title||'Tarefa importada').trim(),description:oldTask.description||null,link_url:normalizedTaskUrl(oldTask.linkUrl)||null,due_date:periodEnd,period_start:periodStart,period_end:periodEnd,schedule_type:importedType,repeat_until_done:Boolean(oldTask.repeatUntilDone),completed_at:oldTask.completedAt||null,priority:['alta','media','baixa'].includes(oldTask.priority)?oldTask.priority:'media',status:statusOrder.includes(oldTask.status)?oldTask.status:'afazer',category:oldTask.category||null,created_by:session.user.id,updated_by:session.user.id}).select('id').single(); if(error)throw error;
       const rows=rawAssignees.map(a=>({workspace_id:CONFIG.workspaceId,task_id:data.id,person_id:oldToNew.get(a.personId),done:Boolean(a.done),done_at:a.done?new Date().toISOString():null,done_by:a.done?session.user.id:null})).filter(r=>r.person_id);
       if(rows.length){const {error:assignmentError}=await supabase.from('task_assignees').insert(rows);if(assignmentError)throw assignmentError;}
     }
@@ -745,7 +749,7 @@ async function deleteEvent(){
 }
 function taskRowsForSheet(tasks=state.tasks){
   return tasks.map(t=>({
-    'ID':t.id,'Título':t.title,'Descrição':t.description,'Tipo de período':scheduleTypeLabels[scheduleTypeOf(t)],'Início':t.periodStart||localISO(taskPeriodStart(t)),'Fim':t.periodEnd||localISO(taskPeriodEnd(t)),'Data limite':t.dueDate,
+    'ID':t.id,'Título':t.title,'Descrição':t.description,'Link':t.linkUrl||'','Tipo de período':scheduleTypeLabels[scheduleTypeOf(t)],'Início':t.periodStart||localISO(taskPeriodStart(t)),'Fim':t.periodEnd||localISO(taskPeriodEnd(t)),'Data limite':t.dueDate,
     'Repetir até concluir':t.repeatUntilDone?'Sim':'Não','Concluída em':t.completedAt?new Date(t.completedAt).toLocaleString('pt-BR'):'','Prioridade':t.priority,'Status':statusLabels[t.status]||t.status,'Categoria':t.category,
     'Responsáveis':assigneeNames(t).join('; '),'Responsáveis concluídos':getTaskAssignees(t).filter(a=>a.done).map(a=>getPerson(a.personId).name).join('; '),'Progresso':`${getTaskAssignees(t).filter(a=>a.done).length}/${getTaskAssignees(t).length}`
   }));
@@ -797,7 +801,7 @@ async function importSpreadsheet(file){
         const personIds=[]; for(const name of assigneeNamesList){ const id=await ensurePersonByName(name); if(id) personIds.push(id); }
         if(!personIds.length && state.people[0]) personIds.push(state.people[0].id);
         const status=statusFromText(row['Status']);
-        const {data,error}=await supabase.from('tasks').insert({workspace_id:CONFIG.workspaceId,title,description:normalizeText(row['Descrição']||row['Descricao'])||null,due_date:periodEnd,period_start:periodStart,period_end:periodEnd,schedule_type:scheduleType,repeat_until_done:booleanFromText(row['Repetir até concluir']||row['Repetir ate concluir']||row['Repetitiva']),completed_at:status==='concluido'?new Date().toISOString():null,priority:priorityFromText(row['Prioridade']),status,category:normalizeText(row['Categoria'])||null,created_by:session.user.id,updated_by:session.user.id}).select('id').single(); if(error) throw error;
+        const {data,error}=await supabase.from('tasks').insert({workspace_id:CONFIG.workspaceId,title,description:normalizeText(row['Descrição']||row['Descricao'])||null,link_url:normalizedTaskUrl(row['Link']||row['URL'])||null,due_date:periodEnd,period_start:periodStart,period_end:periodEnd,schedule_type:scheduleType,repeat_until_done:booleanFromText(row['Repetir até concluir']||row['Repetir ate concluir']||row['Repetitiva']),completed_at:status==='concluido'?new Date().toISOString():null,priority:priorityFromText(row['Prioridade']),status,category:normalizeText(row['Categoria'])||null,created_by:session.user.id,updated_by:session.user.id}).select('id').single(); if(error) throw error;
         const assignments=personIds.map(personId=>{ const name=getPerson(personId).name.toLowerCase(); const done=status==='concluido'||doneNames.has(name); return {workspace_id:CONFIG.workspaceId,task_id:data.id,person_id:personId,done,done_at:done?new Date().toISOString():null,done_by:done?session.user.id:null}; });
         if(assignments.length){const {error:assignError}=await supabase.from('task_assignees').insert(assignments); if(assignError) throw assignError;}
       }
