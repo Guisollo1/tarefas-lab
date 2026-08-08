@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b2545" />
+  <meta name="description" content="Kanban LFR com recorrência mensal, calendário, feriados do Rio de Janeiro, planilhas e relatórios." />
+  <title>LFR Planejamento Online — Tarefas com links</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="auth-mode">
+  <section id="authView" class="auth-view">
+    <div class="auth-card">
+      <div class="auth-banner">
+        <div class="auth-logo">LFR</div>
+        <h1>Planejamento Online</h1>
+        <p>📋 Kanban semanal e mensal sincronizado pelo Supabase</p>
+      </div>
+      <div class="auth-body">
+        <div id="authMessage" class="auth-message">Entre com o usuário cadastrado no Supabase.</div>
+        <form id="loginForm">
+          <div class="field">
+            <label for="loginEmail">E-mail</label>
+            <input id="loginEmail" class="input" type="email" autocomplete="email" required placeholder="nome@empresa.com" />
+          </div>
+          <div class="field">
+            <label for="loginPassword">Senha</label>
+            <input id="loginPassword" class="input" type="password" autocomplete="current-password" minlength="6" required placeholder="Sua senha" />
+          </div>
+          <div id="loginButtons" class="auth-actions">
+            <button class="btn primary" type="submit">Entrar no Kanban</button>
+          </div>
+        </form>
+        <button id="signupBtn" class="btn ghost hidden" style="width:100%;margin-top:9px" type="button">Criar uma conta</button>
+        <div id="configurationHelp" class="config-box hidden">
+          A conexão ainda não foi configurada. Edite o arquivo:
+          <code>docs/config.js</code>
+          e informe a URL e a chave publicável do seu projeto Supabase.
+        </div>
+        <div class="sync-note">V13 • links clicáveis nas tarefas • tarefas fixas e avisos</div>
+      </div>
+    </div>
+  </section>
+
+  <div id="appRoot" class="hidden">
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-mark">LFR</div>
+        <div>
+          <h1>Planejamento de Tarefas</h1>
+          <p>✨ Kanban online • múltiplos responsáveis • sincronização em tempo real</p>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <div class="app-view-switch" aria-label="Área do sistema">
+          <button id="kanbanViewBtn" class="active" type="button">📋 Kanban</button>
+          <button id="calendarViewBtn" type="button">🗓️ Calendário</button>
+          <button id="holidaysViewBtn" type="button">🎉 Feriados RJ</button>
+        </div>
+        <div id="kanbanPeriodSwitch" class="period-switch" aria-label="Período do Kanban">
+          <button id="weekModeBtn" class="active" type="button">Semana</button>
+          <button id="monthModeBtn" type="button">Mês</button>
+        </div>
+        <div class="date-nav">
+          <button id="prevPeriodBtn" class="head-btn" type="button" title="Período anterior">‹</button>
+          <button id="todayBtn" class="head-btn" type="button">Hoje</button>
+          <div id="periodTitle" class="date-title"></div>
+          <button id="nextPeriodBtn" class="head-btn" type="button" title="Próximo período">›</button>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="mobileSidebarBtn" class="icon-btn mobile-sidebar-btn" type="button" title="Filtros">☰</button>
+        <div id="connectionBadge" class="connection-badge"><i></i><span>Conectando</span></div>
+        <button id="themeBtn" class="icon-btn" type="button" title="Alternar tema">◐</button>
+        <button id="teamBtn" class="head-btn" type="button"><span class="btn-icon animated-emoji">👥</span> Responsáveis</button>
+        <button id="fixedTaskBtn" class="head-btn fixed-task-btn" type="button"><span class="btn-icon animated-emoji">📌</span> Tarefa fixa</button>
+        <button id="newTaskBtn" class="head-btn primary" type="button"><span class="btn-icon animated-emoji">✨</span> Nova tarefa</button>
+        <div class="user-box">
+          <span id="userEmail" class="user-email"></span>
+          <button id="logoutBtn" class="head-btn" type="button">Sair</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <aside id="sidebar" class="sidebar">
+        <section id="fixedAlertsSection" class="sidebar-section fixed-alerts-section">
+          <div class="section-title"><span>🔔 Próximas tarefas fixas</span> <span id="fixedAlertsCount">0</span></div>
+          <div id="fixedAlertsPanel" class="fixed-alerts-panel"></div>
+          <button id="enableNotificationsBtn" class="sidebar-btn notification-btn" type="button"><span class="btn-icon">🔔</span> Ativar avisos do navegador</button>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title"><span>📊 Resumo do período</span></div>
+          <div class="summary-grid">
+            <div class="summary-card"><strong id="metricTotal">0</strong><span>Tarefas</span></div>
+            <div class="summary-card"><strong id="metricDone">0</strong><span>Concluídas</span></div>
+            <div class="summary-card"><strong id="metricLate">0</strong><span>Atrasadas</span></div>
+            <div class="summary-card"><strong id="metricProgress">0</strong><span>Em andamento</span></div>
+            <div class="summary-card full">
+              <div style="width:100%">
+                <div style="display:flex;justify-content:space-between;gap:8px"><span>Progresso geral</span><strong id="metricPercent" style="font-size:13px;margin:0">0%</strong></div>
+                <div class="progress"><i id="metricBar" style="width:0%"></i></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title"><span>👥 Responsáveis</span> <span id="peopleCount">0</span></div>
+          <div id="personFilters" class="person-list"></div>
+          <button id="managePeopleBtn" class="sidebar-btn" type="button">＋ Gerenciar responsáveis</button>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title"><span>🔁 Tarefas mensais</span> <span id="recurringCount">0</span></div>
+          <div id="recurringTemplatesPanel" class="recurring-templates-panel"></div>
+          <button id="manageRecurringBtn" class="sidebar-btn" type="button"><span class="btn-icon">⚙️</span> Gerenciar recorrências</button>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title"><span>📁 Planilhas, relatórios e backup</span></div>
+          <button id="exportSheetBtn" class="sidebar-btn" type="button"><span class="btn-icon">📊</span> Exportar planilha XLSX</button>
+          <button id="importSheetBtn" class="sidebar-btn" type="button" style="margin-top:8px"><span class="btn-icon">📥</span> Importar planilha XLSX</button>
+          <input id="importSheetFile" class="file-input" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
+          <button id="exportBtn" class="sidebar-btn" type="button" style="margin-top:8px"><span class="btn-icon">🧰</span> Exportar backup JSON</button>
+          <button id="importBtn" class="sidebar-btn" type="button" style="margin-top:8px"><span class="btn-icon">📦</span> Importar backup JSON</button>
+          <input id="importFile" class="file-input" type="file" accept="application/json,.json" />
+          <button id="weeklyHtmlBtn" class="sidebar-btn strong" type="button" style="margin-top:8px" title="Gera um relatório HTML estilizado para a apresentação de segunda-feira"><span class="btn-icon animated-emoji">📝</span> Relatório HTML da semana</button>
+          <button id="weeklyTxtBtn" class="sidebar-btn" type="button" style="margin-top:8px" title="Gera o relatório com ocorrências de segunda 08:00 até a segunda seguinte antes das 08:00"><span class="btn-icon">📄</span> Relatório TXT para segunda-feira</button>
+          <button id="clearFiltersBtn" class="sidebar-btn" type="button" style="margin-top:8px"><span class="btn-icon">🧹</span> Limpar filtros</button>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title"><span>⚠️ Ocorrências do laboratório</span> <span id="eventsCount">0</span></div>
+          <div id="eventsPanel" class="events-panel"></div>
+          <button id="newEventBtn" class="sidebar-btn" type="button"><span class="btn-icon animated-emoji">➕</span> Adicionar ocorrência</button>
+        </section>
+      </aside>
+
+      <main class="main">
+        <section id="kanbanView" class="app-content-view">
+          <div class="toolbar">
+            <div class="search-wrap"><span class="search-icon">⌕</span><input id="searchInput" class="input" type="search" placeholder="Pesquisar tarefa, categoria ou responsável..." /></div>
+            <select id="priorityFilter" class="select" aria-label="Filtrar prioridade">
+              <option value="all">Todas as prioridades</option><option value="alta">Prioridade alta</option><option value="media">Prioridade média</option><option value="baixa">Prioridade baixa</option>
+            </select>
+            <select id="categoryFilter" class="select" aria-label="Filtrar categoria"><option value="all">Todas as categorias</option></select>
+            <button id="toolbarFixedTaskBtn" class="btn fixed-task-btn" type="button"><span class="btn-icon animated-emoji">📌</span> Tarefa fixa</button>
+            <button id="toolbarNewTaskBtn" class="btn primary" type="button"><span class="btn-icon animated-emoji">🚀</span> Criar tarefa</button>
+          </div>
+
+          <div id="currentDateBanner" class="current-date-banner"></div>
+          <div id="monthStrip" class="month-strip"></div>
+          <section id="board" class="board" aria-label="Quadro Kanban">
+            <article class="column" data-status="planejado"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#778395"></i>🗂️ Planejado</div><div id="count-planejado" class="count">0</div></header><div id="col-planejado" class="column-body"></div></article>
+            <article class="column" data-status="afazer"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#3478c8"></i>📌 A fazer</div><div id="count-afazer" class="count">0</div></header><div id="col-afazer" class="column-body"></div></article>
+            <article class="column" data-status="andamento"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#e09f1f"></i>⚙️ Em andamento</div><div id="count-andamento" class="count">0</div></header><div id="col-andamento" class="column-body"></div></article>
+            <article class="column" data-status="concluido"><header class="column-head"><div class="column-title"><i class="status-dot" style="background:#21875a"></i>✅ Concluído</div><div id="count-concluido" class="count">0</div></header><div id="col-concluido" class="column-body"></div></article>
+          </section>
+        </section>
+
+        <section id="calendarView" class="app-content-view hidden">
+          <div class="calendar-topbar">
+            <div><h2>🗓️ Calendário mensal</h2><p>Tarefas, ocorrências e feriados do Rio de Janeiro reunidos por dia.</p></div>
+            <div class="calendar-legend"><span class="legend-item holiday-national">🇧🇷 Nacional</span><span class="legend-item holiday-state">🔵 Estadual RJ</span><span class="legend-item holiday-city">🏙️ Cidade do Rio</span><span class="legend-item holiday-optional">🟠 Ponto facultativo</span></div>
+          </div>
+          <div class="calendar-weekdays"><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span><span>Dom</span></div>
+          <div id="calendarGrid" class="calendar-grid"></div>
+        </section>
+
+        <section id="holidaysView" class="app-content-view hidden">
+          <div class="holidays-hero">
+            <div><h2>🎉 Feriados e pontos facultativos — Rio de Janeiro</h2><p>Calendário consolidado para planejamento do laboratório. Feriados nacionais, estaduais do RJ e municipais da cidade do Rio.</p></div>
+            <div id="holidaysYearBadge" class="holidays-year-badge"></div>
+          </div>
+          <div class="holiday-disclaimer">ℹ️ Pontos facultativos e expedientes podem variar por empresa ou por decreto anual. O sistema diferencia cada tipo no calendário.</div>
+          <div id="holidaysList" class="holidays-list"></div>
+        </section>
+
+        <footer class="app-footer">LFR Planejamento Online V13 • links clicáveis • tarefas fixas e avisos • desenvolvido por Guilherme Sollo</footer>
+      </main>
+    </div>
+  </div>
+
+  <div id="taskModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
+      <header class="modal-head"><h2 id="taskModalTitle">Nova tarefa</h2><button id="closeTaskModalBtn" class="modal-close" type="button">×</button></header>
+      <form id="taskForm">
+        <div class="modal-body"><div class="form-grid">
+          <div class="field full"><label for="taskTitle">Título da tarefa *</label><input id="taskTitle" class="input" maxlength="100" required placeholder="Ex.: Revisar relatório mensal" /></div>
+          <div class="field full"><label for="taskDescription">Descrição</label><textarea id="taskDescription" class="textarea" maxlength="1000" placeholder="Detalhes, instruções ou observações"></textarea></div>
+          <div class="field full"><label for="taskLinkUrl">Link da tarefa (opcional)</label><input id="taskLinkUrl" class="input" type="url" maxlength="2000" placeholder="https://exemplo.com/pagina" /><div class="assignee-help">No Kanban aparecerá o botão “Acessar link”. Links escritos na descrição também ficam clicáveis.</div></div>
+          <div class="field full"><label>Responsáveis pela tarefa *</label><div id="taskAssigneePicker" class="assignee-picker"></div><div class="assignee-help">Marque uma ou várias pessoas. Cada responsável poderá concluir individualmente sua parte.</div></div>
+          <div id="taskScheduleTypeField" class="field"><label for="taskScheduleType">Período da tarefa *</label><select id="taskScheduleType" class="select" required><option value="day">Um dia</option><option value="week">Uma semana</option><option value="month">Um mês</option><option value="monthly_recurring" hidden>Tarefa fixa mensal</option></select></div>
+          <div id="taskDateField" class="field"><label id="taskDateLabel" for="taskDueDate">Data da tarefa *</label><input id="taskDueDate" class="input" type="date" /></div>
+          <div id="taskMonthField" class="field hidden"><label for="taskMonth">Mês da tarefa *</label><input id="taskMonth" class="input" type="month" /></div>
+          <div id="monthlyRecurrenceFields" class="field full hidden">
+            <div class="fixed-task-intro"><strong>📌 Tarefa fixa mensal</strong><span>Escolha qualquer dia — ou vários dias — e a tarefa entrará automaticamente como “A fazer” no Kanban de cada mês.</span></div>
+            <label>Dias em que a tarefa aparecerá todo mês *</label>
+            <div id="monthlyDaysPicker" class="monthly-days-picker"></div>
+            <div class="recurrence-date-grid">
+              <div class="field"><label for="recurrenceStartsOn">Começar em *</label><input id="recurrenceStartsOn" class="input" type="date" /></div>
+              <div class="field"><label for="recurrenceEndsOn">Terminar em (opcional)</label><input id="recurrenceEndsOn" class="input" type="date" /></div>
+            </div>
+            <div class="assignee-help">Exemplo: selecione 5, 12 e 25 para criar uma ocorrência independente nesses dias de cada mês. Dias inexistentes, como 31 em fevereiro, são ignorados.</div>
+          </div>
+          <div id="recurrenceInstanceNotice" class="field full hidden"><div class="schedule-preview">🔁 Esta é uma ocorrência de uma regra mensal. Editar este cartão altera somente esta ocorrência.</div></div>
+          <div class="field"><label for="taskPriority">Prioridade</label><select id="taskPriority" class="select"><option value="alta">Alta</option><option value="media" selected>Média</option><option value="baixa">Baixa</option></select></div>
+          <div id="taskStatusField" class="field"><label for="taskStatus">Etapa</label><select id="taskStatus" class="select"><option value="planejado">Planejado</option><option value="afazer" selected>A fazer</option><option value="andamento">Em andamento</option><option value="concluido">Concluído</option></select></div>
+          <div class="field full"><label class="repeat-toggle" for="taskRepeatUntilDone"><input id="taskRepeatUntilDone" type="checkbox" /><span><strong>Repetir / transportar até ser concluída</strong><small>A mesma tarefa continuará aparecendo no período atual, sem criar cópias.</small></span></label><div id="taskSchedulePreview" class="schedule-preview"></div></div>
+          <div class="field full"><label for="taskCategory">Categoria</label><input id="taskCategory" class="input" maxlength="60" placeholder="Ex.: Laboratório, Manutenção, Relatório" /></div>
+        </div></div>
+        <footer class="modal-actions"><button id="deleteTaskBtn" class="btn danger hidden" type="button">Excluir tarefa</button><div class="modal-actions-right"><button id="cancelTaskBtn" class="btn" type="button">Cancelar</button><button class="btn primary" type="submit">Salvar tarefa</button></div></footer>
+      </form>
+    </section>
+  </div>
+
+  <div id="teamModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="teamModalTitle">
+      <header class="modal-head"><h2 id="teamModalTitle">Responsáveis</h2><button id="closeTeamModalBtn" class="modal-close" type="button">×</button></header>
+      <div class="modal-body">
+        <div class="form-grid"><div class="field full"><label for="newPersonName">Adicionar responsável</label><div style="display:grid;grid-template-columns:1fr 48px auto;gap:8px"><input id="newPersonName" class="input" maxlength="45" placeholder="Nome do responsável" /><input id="newPersonColor" class="color-picker" type="color" value="#0b5cab" title="Cor" /><button id="addPersonBtn" class="btn primary" type="button">Adicionar</button></div></div></div>
+        <div id="teamEditorList" class="team-editor-list"></div>
+      </div>
+      <footer class="modal-actions"><span style="font-size:12px;color:var(--muted)">Retire a pessoa das tarefas antes de removê-la.</span><button id="doneTeamBtn" class="btn primary" type="button">Concluir</button></footer>
+    </section>
+  </div>
+
+
+  <div id="recurringModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="recurringModalTitle">
+      <header class="modal-head"><h2 id="recurringModalTitle">🔁 Regras mensais</h2><button id="closeRecurringModalBtn" class="modal-close" type="button">×</button></header>
+      <div class="modal-body">
+        <div class="recurring-info-box">Cada regra gera tarefas independentes nos dias escolhidos. Concluir uma ocorrência não encerra os próximos meses.</div>
+        <div id="recurringManagerList" class="recurring-manager-list"></div>
+      </div>
+      <footer class="modal-actions"><span style="font-size:12px;color:var(--muted)">Desativar interrompe novas ocorrências; o histórico permanece.</span><button id="doneRecurringBtn" class="btn primary" type="button">Concluir</button></footer>
+    </section>
+  </div>
+
+
+  <div id="eventModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="eventModalTitle">
+      <header class="modal-head"><h2 id="eventModalTitle">Nova ocorrência</h2><button id="closeEventModalBtn" class="modal-close" type="button">×</button></header>
+      <form id="eventForm">
+        <div class="modal-body"><div class="form-grid">
+          <div class="field"><label for="eventDate">Data *</label><input id="eventDate" class="input" type="date" required /></div>
+          <div class="field"><label for="eventTime">Horário *</label><input id="eventTime" class="input" type="time" required /></div>
+          <div class="field"><label for="eventType">Tipo *</label><select id="eventType" class="select" required>
+            <option value="visita">Visita</option><option value="visita_tecnica">Visita técnica</option><option value="apresentacao">Apresentação</option><option value="manutencao">Manutenção</option><option value="queda_luz">Queda de luz</option><option value="treinamento">Treinamento</option><option value="reuniao">Reunião</option><option value="auditoria">Auditoria</option><option value="seguranca">Segurança</option><option value="outro">Outro</option>
+          </select></div>
+          <div class="field full"><label for="eventTitle">Título *</label><input id="eventTitle" class="input" maxlength="140" required placeholder="Ex.: Visita técnica no laboratório" /></div>
+          <div class="field full"><label for="eventDescription">Descrição / resumo</label><textarea id="eventDescription" class="textarea" maxlength="1500" placeholder="O que aconteceu, quem participou e observações importantes"></textarea></div>
+          <div class="field full"><label for="eventParticipants">Participantes / visitantes</label><input id="eventParticipants" class="input" maxlength="240" placeholder="Ex.: Equipe LFR, manutenção, cliente, técnico responsável" /></div>
+          <div class="field full"><label for="eventImpact">Impacto / providência</label><input id="eventImpact" class="input" maxlength="240" placeholder="Ex.: Sem impacto, interrompeu análise por 30 minutos, ficou pendente" /></div>
+        </div></div>
+        <footer class="modal-actions"><button id="deleteEventBtn" class="btn danger hidden" type="button">Excluir ocorrência</button><div class="modal-actions-right"><button id="cancelEventBtn" class="btn" type="button">Cancelar</button><button class="btn primary" type="submit">Salvar ocorrência</button></div></footer>
+      </form>
+    </section>
+  </div>
+
+
+  <div id="pastGuardBackdrop" class="modal-backdrop hidden">
+    <section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="pastGuardTitle">
+      <header class="modal-head"><h2 id="pastGuardTitle">Período histórico protegido</h2><button id="closePastGuardBtn" class="modal-close" type="button">×</button></header>
+      <div class="modal-body">
+        <div class="history-lock-icon">🔒</div>
+        <p id="pastGuardMessage" class="history-lock-message"></p>
+        <div class="field"><label id="pastGuardLabel" for="pastGuardInput">Digite a palavra de confirmação</label><input id="pastGuardInput" class="input guard-word" autocomplete="off" spellcheck="false" /></div>
+        <div id="pastGuardError" class="guard-error"></div>
+      </div>
+      <footer class="modal-actions"><span class="history-lock-note">A proteção evita alterações acidentais em dias encerrados.</span><div class="modal-actions-right"><button id="cancelPastGuardBtn" class="btn" type="button">Cancelar</button><button id="confirmPastGuardBtn" class="btn primary" type="button">Confirmar</button></div></footer>
+    </section>
+  </div>
+
+
+
+  <div id="reportPreviewBackdrop" class="modal-backdrop report-preview-backdrop hidden">
+    <section class="modal report-preview-modal" role="dialog" aria-modal="true" aria-labelledby="reportPreviewTitle">
+      <header class="modal-head report-preview-head">
+        <div>
+          <h2 id="reportPreviewTitle">Relatório semanal do laboratório</h2>
+          <div id="reportPreviewPeriod" class="report-preview-period"></div>
+        </div>
+        <button id="closeReportPreviewBtn" class="modal-close" type="button" title="Fechar">×</button>
+      </header>
+      <div class="report-preview-toolbar">
+        <button id="openReportWindowBtn" class="btn" type="button"><span class="btn-icon">↗️</span> Abrir em nova janela</button>
+        <button id="downloadReportHtmlBtn" class="btn primary" type="button"><span class="btn-icon">⬇️</span> Baixar HTML</button>
+        <button id="printReportBtn" class="btn" type="button"><span class="btn-icon">🖨️</span> Imprimir / PDF</button>
+      </div>
+      <div class="report-preview-body">
+        <iframe id="reportPreviewFrame" class="report-preview-frame" title="Pré-visualização do relatório semanal"></iframe>
+      </div>
+      <footer class="modal-actions report-preview-footer">
+        <span>O relatório é gerado com os dados atuais do Kanban e das ocorrências.</span>
+        <button id="closeReportPreviewFooterBtn" class="btn" type="button">Fechar</button>
+      </footer>
+    </section>
+  </div>
+
+  <div id="loadingCover" class="loading-cover hidden"><div id="loadingText" class="loading-card">Sincronizando dados...</div></div>
+  <div id="toast" class="toast"></div>
+
+  <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
